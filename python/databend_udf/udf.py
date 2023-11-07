@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from concurrent.futures import ThreadPoolExecutor
-from typing import *
-import concurrent
-import inspect
 import json
-import pyarrow as pa
-import pyarrow.flight
+import inspect
 import traceback
+from concurrent.futures import ThreadPoolExecutor
+from typing import Iterator, Callable, Optional, Union, List, Dict
+
+import pyarrow as pa
+from pyarrow.flight import FlightServerBase, FlightInfo
 
 # comes from Databend
 MAX_DECIMAL128_PRECISION = 38
@@ -98,11 +98,10 @@ class ScalarFunction(UserDefinedFunction):
         if self._executor is not None:
             # concurrently evaluate the function for each row
             if self._skip_null:
-                null_func = lambda *v: None
                 tasks = []
                 for row in range(batch.num_rows):
                     args = [col[row] for col in inputs]
-                    func = null_func if None in args else self._func
+                    func = _null_func if None in args else self._func
                     tasks.append(self._executor.submit(func, *args))
             else:
                 tasks = [
@@ -147,8 +146,9 @@ def udf(
     - result_type: A string or an Arrow data type that specifies the return value type.
     - name: An optional string specifying the function name. If not provided, the original name will be used.
     - io_threads: Number of I/O threads used per data chunk for I/O bound functions.
-    - skip_null: A boolean value specifying whether to skip NULL value. If it is set to True, NULL values
-                will not be passed to the function, and the corresponding return value is set to NULL. Default to False.
+    - skip_null: A boolean value specifying whether to skip NULL value. If it is set to True,
+                NULL values will not be passed to the function,
+                and the corresponding return value is set to NULL. Default to False.
 
     Example:
     ```
@@ -183,7 +183,7 @@ def udf(
         )
 
 
-class UDFServer(pa.flight.FlightServerBase):
+class UDFServer(FlightServerBase):
     """
     A server that provides user-defined functions to clients.
 
@@ -211,7 +211,7 @@ class UDFServer(pa.flight.FlightServerBase):
         udf = self._functions[func_name]
         # return the concatenation of input and output schema
         full_schema = pa.schema(list(udf._input_schema) + list(udf._result_schema))
-        return pa.flight.FlightInfo(
+        return FlightInfo(
             schema=full_schema,
             descriptor=descriptor,
             endpoints=[],
@@ -244,13 +244,21 @@ class UDFServer(pa.flight.FlightServerBase):
             _arrow_field_to_string(field) for field in udf._input_schema
         )
         output_type = _arrow_field_to_string(udf._result_schema[0])
-        sql = f"CREATE FUNCTION {name} ({input_types}) RETURNS {output_type} LANGUAGE python HANDLER = '{name}' ADDRESS = 'http://{self._location}';"
+        sql = (
+            f"CREATE FUNCTION {name} ({input_types}) "
+            f"RETURNS {output_type} LANGUAGE python "
+            f"HANDLER = '{name}' ADDRESS = 'http://{self._location}';"
+        )
         print(f"added function: {name}, corresponding SQL:\n{sql}\n")
 
     def serve(self):
         """Start the server."""
         print(f"listening on {self._location}")
         super(UDFServer, self).serve()
+
+
+def _null_func(*args):
+    return None
 
 
 def _process_func(type: pa.DataType, output: bool) -> Callable:
@@ -457,7 +465,7 @@ def _arrow_field_to_string(field: pa.Field) -> str:
 
 
 def _inner_field_to_string(field: pa.Field) -> str:
-    ## inner field default is NOT NULL in databend
+    # inner field default is NOT NULL in databend
     type_str = _data_type_to_string(field.type)
     return f"{type_str} NULL" if field.nullable else type_str
 

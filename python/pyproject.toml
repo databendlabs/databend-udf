@@ -1,0 +1,19 @@
+[project]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+description = "Databend UDF Server"
+license = { text = "Apache-2.0" }
+name = "databend-udf"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = ["pyarrow"]
+
+[project.optional-dependencies]
+lint = ["black", "flake8"]
+
+[project.urls]
+Repository = "https://github.com/databendcloud/databend-udf"

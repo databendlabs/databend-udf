@@ -1,14 +1,3 @@
-## Databend UDF Server Tests
-
-```sh
-pip install pyarrow
-# start UDF server
-python3 udf_test.py
-```
-
-```sh
-./target/debug/databend-sqllogictests --run_dir udf_server
-```
 
 ## Databend Python UDF Server API
 This library provides a Python API for creating user-defined functions (UDF) server in Databend.
@@ -20,14 +9,14 @@ Databend supports user-defined functions implemented as external functions. With
 
 #### 1. Define your functions in a Python file
 ```python
-from udf import *
+from databend_udf import *
 
 # Define a function
 @udf(input_types=["VARCHAR", "VARCHAR", "VARCHAR"], result_type="VARCHAR")
 def split_and_join(s: str, split_s: str, join_s: str) -> str:
     return join_s.join(s.split(split_s))
 
-# Define a function that accpets nullable values, and set skip_null to True to enable it returns NULL if any argument is NULL.
+# Define a function that accepts nullable values, and set skip_null to True to enable it returns NULL if any argument is NULL.
 @udf(
     input_types=["INT", "INT"],
     result_type="INT",
@@ -38,7 +27,7 @@ def gcd(x: int, y: int) -> int:
         (x, y) = (y, x % y)
     return x
 
-# Define a function that accpets nullable values, and set skip_null to False to enable it handles NULL values inside the function.
+# Define a function that accepts nullable values, and set skip_null to False to enable it handles NULL values inside the function.
 @udf(
     input_types=["ARRAY(INT64 NULL)", "INT64"],
     result_type="INT NOT NULL",
@@ -125,6 +114,7 @@ mysql> select split_and_join('3,5,7', ',', ':');
 +-----------------------------------+
 ```
 
+
 ### Data Types
 The data types supported by the Python UDF API and their corresponding python types are as follows :
 
@@ -147,6 +137,19 @@ The data types supported by the Python UDF API and their corresponding python ty
 | TUPLE(T...)         | tuple(T...)       |
 
 The NULL in sql is represented by None in Python.
+
+
+## Databend UDF Server Tests
+
+```sh
+# start UDF server
+python3 udf_test.py
+```
+
+```sh
+./target/debug/databend-sqllogictests --run_dir udf_server
+```
+
 
 ### Acknowledgement
 Databend Python UDF Server API is inspired by [RisingWave Python API](https://pypi.org/project/risingwave/).

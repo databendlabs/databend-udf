@@ -34,6 +34,7 @@ jobs:
           python -m pip install build
           python -m build
       - uses: pypa/gh-action-pypi-publish@release/v1
+        if: github.event_name == 'push'
         with:
           packages-dir: python/dist/
           skip-existing: true

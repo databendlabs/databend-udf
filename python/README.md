@@ -124,6 +124,7 @@ The data types supported by the Python UDF API and their corresponding python ty
 | DATE                | datetime.date     |
 | TIMESTAMP           | datetime.datetime |
 | VARCHAR             | str               |
+| BINARY              | bytes             |
 | VARIANT             | any               |
 | MAP(K,V)            | dict              |
 | ARRAY(T)            | list[T]           |
@@ -136,7 +137,7 @@ The NULL in sql is represented by None in Python.
 
 ```sh
 # start UDF server
-python3 udf_test.py
+python3 examples/server.py
 ```
 
 ```sh

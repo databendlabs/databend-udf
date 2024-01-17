@@ -50,7 +50,8 @@ class UserDefinedFunction:
 
 class ScalarFunction(UserDefinedFunction):
     """
-    Base interface for user-defined scalar function. A user-defined scalar functions maps zero, one,
+    Base interface for user-defined scalar function.
+    A user-defined scalar functions maps zero, one,
     or multiple scalar values to a new scalar value.
     """
 
@@ -146,7 +147,8 @@ def udf(
     Parameters:
     - input_types: A list of strings or Arrow data types that specifies the input data types.
     - result_type: A string or an Arrow data type that specifies the return value type.
-    - name: An optional string specifying the function name. If not provided, the original name will be used.
+    - name: An optional string specifying the function name.
+            If not provided, the original name will be used.
     - io_threads: Number of I/O threads used per data chunk for I/O bound functions.
     - skip_null: A boolean value specifying whether to skip NULL value. If it is set to True,
                 NULL values will not be passed to the function,

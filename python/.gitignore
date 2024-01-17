@@ -3,3 +3,4 @@ venv/
 dist/
 __pycache__/
 Pipfile.lock
+.ruff_cache/

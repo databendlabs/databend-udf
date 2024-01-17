@@ -7,8 +7,7 @@ name = "pypi"
 databend-udf = {file = "."}
 
 [dev-packages]
-flake8 = "*"
-black = "*"
+ruff = "*"
 
 [requires]
 python_version = "3.12"

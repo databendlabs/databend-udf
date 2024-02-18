@@ -543,9 +543,9 @@ def _field_type_to_string(field: pa.Field) -> str:
         return "DATE"
     elif pa.types.is_timestamp(t):
         return "TIMESTAMP"
-    elif pa.types.is_large_unicode(t):
+    elif pa.types.is_large_unicode(t) or pa.types.is_unicode(t):
         return "VARCHAR"
-    elif pa.types.is_large_binary(t):
+    elif pa.types.is_large_binary(t) or pa.types.is_binary(t):
         if _field_is_variant(field):
             return "VARIANT"
         else:

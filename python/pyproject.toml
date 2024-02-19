@@ -7,13 +7,13 @@ classifiers = [
 description = "Databend UDF Server"
 license = { text = "Apache-2.0" }
 name = "databend-udf"
-version = "0.2.1"
+version = "0.2.2"
 readme = "README.md"
 requires-python = ">=3.7"
 dependencies = ["pyarrow"]
 
 [project.optional-dependencies]
-lint = ["black", "flake8"]
+lint = ["ruff"]
 
 [project.urls]
 Repository = "https://github.com/datafuselabs/databend-udf"

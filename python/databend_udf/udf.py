@@ -61,7 +61,7 @@ class ScalarFunction(UserDefinedFunction):
     _skip_null: bool
 
     def __init__(
-        self, func, input_types, result_type, name=None, io_threads=32, skip_null=None
+        self, func, input_types, result_type, name=None, io_threads=None, skip_null=None
     ):
         self._func = func
         self._input_schema = pa.schema(
@@ -138,7 +138,7 @@ def udf(
     input_types: Union[List[Union[str, pa.DataType]], Union[str, pa.DataType]],
     result_type: Union[str, pa.DataType],
     name: Optional[str] = None,
-    io_threads: Optional[int] = None,
+    io_threads: Optional[int] = 32,
     skip_null: Optional[bool] = False,
 ) -> Callable:
     """

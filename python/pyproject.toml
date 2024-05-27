@@ -7,7 +7,7 @@ classifiers = [
 description = "Databend UDF Server"
 license = { text = "Apache-2.0" }
 name = "databend-udf"
-version = "0.2.2"
+version = "0.2.3"
 readme = "README.md"
 requires-python = ">=3.7"
 dependencies = ["pyarrow"]

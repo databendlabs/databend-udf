@@ -61,7 +61,7 @@ class ScalarFunction(UserDefinedFunction):
     _skip_null: bool
 
     def __init__(
-        self, func, input_types, result_type, name=None, io_threads=None, skip_null=None
+        self, func, input_types, result_type, name=None, io_threads=32, skip_null=None
     ):
         self._func = func
         self._input_schema = pa.schema(

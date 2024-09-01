@@ -59,9 +59,17 @@ class ScalarFunction(UserDefinedFunction):
     _io_threads: Optional[int]
     _executor: Optional[ThreadPoolExecutor]
     _skip_null: bool
+    _batch_mode: bool
 
     def __init__(
-        self, func, input_types, result_type, name=None, io_threads=None, skip_null=None
+        self,
+        func,
+        input_types,
+        result_type,
+        name=None,
+        io_threads=None,
+        skip_null=None,
+        batch_mode=False,
     ):
         self._func = func
         self._input_schema = pa.schema(
@@ -78,6 +86,7 @@ class ScalarFunction(UserDefinedFunction):
             func.__name__ if hasattr(func, "__name__") else func.__class__.__name__
         )
         self._io_threads = io_threads
+        self._batch_mode = batch_mode
         self._executor = (
             ThreadPoolExecutor(max_workers=self._io_threads)
             if self._io_threads is not None
@@ -98,7 +107,11 @@ class ScalarFunction(UserDefinedFunction):
             _input_process_func(_list_field(field))(array)
             for array, field in zip(inputs, self._input_schema)
         ]
-        if self._executor is not None:
+
+        # evaluate the function for each row
+        if self._batch_mode:
+            column = self._func(*inputs)
+        elif self._executor is not None:
             # concurrently evaluate the function for each row
             if self._skip_null:
                 tasks = []
@@ -113,7 +126,6 @@ class ScalarFunction(UserDefinedFunction):
                 ]
             column = [future.result() for future in tasks]
         else:
-            # evaluate the function for each row
             if self._skip_null:
                 column = []
                 for row in range(batch.num_rows):
@@ -140,6 +152,7 @@ def udf(
     name: Optional[str] = None,
     io_threads: Optional[int] = 32,
     skip_null: Optional[bool] = False,
+    batch_mode: Optional[bool] = False,
 ) -> Callable:
     """
     Annotation for creating a user-defined scalar function.
@@ -153,6 +166,7 @@ def udf(
     - skip_null: A boolean value specifying whether to skip NULL value. If it is set to True,
                 NULL values will not be passed to the function,
                 and the corresponding return value is set to NULL. Default to False.
+    - batch_mode: A boolean value specifying whether to use batch mode. Default to False.
 
     Example:
     ```
@@ -170,6 +184,13 @@ def udf(
         response = requests.get(my_endpoint + '?param=' + x)
         return response["data"]
     ```
+
+    Batch mode example:
+    ```
+    @udf(input_types=['INT', 'INT'], result_type='INT', batch_mode=True)
+    def gcd(x, y):
+        return [x_i if y_i == 0 else gcd(y_i, x_i % y_i) for x_i, y_i in zip(x, y)]
+    ```
     """
 
     if io_threads is not None and io_threads > 1:
@@ -180,10 +201,16 @@ def udf(
             name,
             io_threads=io_threads,
             skip_null=skip_null,
+            batch_mode=batch_mode,
         )
     else:
         return lambda f: ScalarFunction(
-            f, input_types, result_type, name, skip_null=skip_null
+            f,
+            input_types,
+            result_type,
+            name,
+            skip_null=skip_null,
+            batch_mode=batch_mode,
         )
 
 

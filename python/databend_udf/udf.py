@@ -62,7 +62,14 @@ class ScalarFunction(UserDefinedFunction):
     _batch_mode: bool
 
     def __init__(
-        self, func, input_types, result_type, name=None, io_threads=None, skip_null=None, batch_mode=False
+        self,
+        func,
+        input_types,
+        result_type,
+        name=None,
+        io_threads=None,
+        skip_null=None,
+        batch_mode=False,
     ):
         self._func = func
         self._input_schema = pa.schema(
@@ -100,8 +107,8 @@ class ScalarFunction(UserDefinedFunction):
             _input_process_func(_list_field(field))(array)
             for array, field in zip(inputs, self._input_schema)
         ]
-        
-         # evaluate the function for each row
+
+        # evaluate the function for each row
         if self._batch_mode:
             column = self._func(*inputs)
         elif self._executor is not None:
@@ -177,7 +184,7 @@ def udf(
         response = requests.get(my_endpoint + '?param=' + x)
         return response["data"]
     ```
-    
+
     Batch mode example:
     ```
     @udf(input_types=['INT', 'INT'], result_type='INT', batch_mode=True)
@@ -194,11 +201,16 @@ def udf(
             name,
             io_threads=io_threads,
             skip_null=skip_null,
-            batch_mode=batch_mode
+            batch_mode=batch_mode,
         )
     else:
         return lambda f: ScalarFunction(
-            f, input_types, result_type, name, skip_null=skip_null, batch_mode=batch_mode
+            f,
+            input_types,
+            result_type,
+            name,
+            skip_null=skip_null,
+            batch_mode=batch_mode,
         )
 
 

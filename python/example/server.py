@@ -54,6 +54,7 @@ def gcd(x: int, y: int) -> int:
         (x, y) = (y, x % y)
     return x
 
+
 @udf(
     name="gcd_batch",
     input_types=["INT", "INT"],
@@ -67,7 +68,9 @@ def gcd_batch(x: list[int], y: list[int]) -> list[int]:
         while y_i != 0:
             (x_i, y_i) = (y_i, x_i % y_i)
         return x_i
+
     return [gcd_single(x_i, y_i) for x_i, y_i in zip(x, y)]
+
 
 @udf(input_types=["VARCHAR", "VARCHAR", "VARCHAR"], result_type="VARCHAR")
 def split_and_join(s: str, split_s: str, join_s: str) -> str:

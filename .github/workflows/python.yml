@@ -22,17 +22,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install pipenv
-        run: curl https://raw.githubusercontent.com/pypa/pipenv/master/get-pipenv.py | python
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - name: Lint
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: python
+        run: pip install ruff
+      - name: Check format
         working-directory: python
         run: |
-          pipenv install --dev
-          pipenv run ruff check databend_udf
-          pipenv run ruff format --check databend_udf
+          ruff format --check .
       - name: build
         working-directory: python
         run: |

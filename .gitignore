@@ -4,3 +4,6 @@ dist/
 __pycache__/
 Pipfile.lock
 .ruff_cache/
+.vscode
+python/example/test.py
+

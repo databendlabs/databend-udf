@@ -314,7 +314,7 @@ def wait_concurrent(x):
 
 
 if __name__ == "__main__":
-    udf_server = UDFServer("0.0.0.0:8815", metric_location = "0.0.0.0:8816")
+    udf_server = UDFServer("0.0.0.0:8815", metric_location="0.0.0.0:8816")
     udf_server.add_function(add_signed)
     udf_server.add_function(add_unsigned)
     udf_server.add_function(add_float)

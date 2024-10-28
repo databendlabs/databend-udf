@@ -232,44 +232,57 @@ class UDFServer(FlightServerBase):
     _location: str
     _functions: Dict[str, UserDefinedFunction]
 
-    def __init__(self, location="0.0.0.0:8815", metric_location = None, **kwargs):
+    def __init__(self, location="0.0.0.0:8815", metric_location=None, **kwargs):
         super(UDFServer, self).__init__("grpc://" + location, **kwargs)
         self._location = location
         self._metric_location = metric_location
         self._functions = {}
 
-         # Initialize Prometheus metrics
+        # Initialize Prometheus metrics
         self.requests_count = Counter(
-            'udf_server_requests_count',
-            'Total number of UDF requests processed',
-            ['function_name']
+            "udf_server_requests_count",
+            "Total number of UDF requests processed",
+            ["function_name"],
         )
         self.rows_count = Counter(
-            'udf_server_rows_count',
-            'Total number of rows processed',
-            ['function_name']
+            "udf_server_rows_count", "Total number of rows processed", ["function_name"]
         )
         self.running_requests = Gauge(
-            'udf_server_running_requests_count',
-            'Number of currently running UDF requests',
-            ['function_name']
+            "udf_server_running_requests_count",
+            "Number of currently running UDF requests",
+            ["function_name"],
         )
         self.running_rows = Gauge(
-            'udf_server_running_rows_count',
-            'Number of currently processing rows',
-            ['function_name']
+            "udf_server_running_rows_count",
+            "Number of currently processing rows",
+            ["function_name"],
         )
         self.response_duration = Histogram(
-            'udf_server_response_duration_seconds',
-            'Time spent processing UDF requests',
-            ['function_name'],
-            buckets=(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0)
+            "udf_server_response_duration_seconds",
+            "Time spent processing UDF requests",
+            ["function_name"],
+            buckets=(
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.075,
+                0.1,
+                0.25,
+                0.5,
+                0.75,
+                1.0,
+                2.5,
+                5.0,
+                7.5,
+                10.0,
+            ),
         )
 
         self.error_count = Counter(
-            'udf_server_errors_count',
-            'Total number of UDF processing errors',
-            ['function_name', 'error_type']
+            "udf_server_errors_count",
+            "Total number of UDF processing errors",
+            ["function_name", "error_type"],
         )
 
         self.add_function(builtin_echo)
@@ -278,12 +291,14 @@ class UDFServer(FlightServerBase):
     def _start_metrics_server(self):
         """Start Prometheus metrics HTTP server if metric_location is provided"""
         try:
-            host, port = self._metric_location.split(':')
+            host, port = self._metric_location.split(":")
             port = int(port)
 
             def start_server():
                 start_http_server(port, host)
-                logger.info(f"Prometheus metrics server started on {self._metric_location}")
+                logger.info(
+                    f"Prometheus metrics server started on {self._metric_location}"
+                )
 
             metrics_thread = threading.Thread(target=start_server, daemon=True)
             metrics_thread.start()
@@ -315,7 +330,7 @@ class UDFServer(FlightServerBase):
         udf = self._functions[func_name]
         writer.begin(udf._result_schema)
 
-           # Increment request counter
+        # Increment request counter
         self.requests_count.labels(function_name=func_name).inc()
         # Increment running requests gauge
         self.running_requests.labels(function_name=func_name).inc()
@@ -333,12 +348,13 @@ class UDFServer(FlightServerBase):
                             writer.write_batch(output_batch)
                     finally:
                         # Decrease running rows gauge after processing
-                        self.running_rows.labels(function_name=func_name).dec(batch_rows)
+                        self.running_rows.labels(function_name=func_name).dec(
+                            batch_rows
+                        )
 
         except Exception as e:
             self.error_count.labels(
-                function_name=func_name,
-                error_type=e.__class__.__name__
+                function_name=func_name, error_type=e.__class__.__name__
             ).inc()
             logger.exception(e)
             raise e
@@ -368,7 +384,9 @@ class UDFServer(FlightServerBase):
         logger.info(f"UDF server listening on {self._location}")
         if self._metric_location:
             self._start_metrics_server()
-            logger.info(f"Prometheus metrics available at http://{self._metric_location}/metrics")
+            logger.info(
+                f"Prometheus metrics available at http://{self._metric_location}/metrics"
+            )
 
         super(UDFServer, self).serve()
 
@@ -676,6 +694,7 @@ def _field_type_to_string(field: pa.Field) -> str:
 @udf(input_types=["VARCHAR"], result_type="VARCHAR")
 def builtin_echo(a):
     return a
+
 
 @udf(input_types=[], result_type="INT")
 def builtin_healthy():

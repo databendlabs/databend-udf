@@ -369,6 +369,7 @@ class UDFServer(FlightServerBase):
         if self._metric_location:
             self._start_metrics_server()
             logger.info(f"Prometheus metrics available at http://{self._metric_location}/metrics")
+
         super(UDFServer, self).serve()
 
 

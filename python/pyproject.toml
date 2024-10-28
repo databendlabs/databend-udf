@@ -10,7 +10,7 @@ name = "databend-udf"
 version = "0.2.5"
 readme = "README.md"
 requires-python = ">=3.7"
-ependencies = [
+dependencies = [
     "pyarrow",
     "prometheus-client>=0.17.0"
 ]

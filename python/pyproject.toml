@@ -17,7 +17,7 @@ dependencies = [
     "uvicorn>=0.22.0",
 ]
 
-[project.dev-dependencies]
+[dev-dependencies]
 requests = ">=2.31.0"
 
 [project.optional-dependencies]

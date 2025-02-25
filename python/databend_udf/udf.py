@@ -21,6 +21,13 @@ from prometheus_client import Counter, Gauge, Histogram
 from prometheus_client import start_http_server
 import threading
 
+from fastapi import FastAPI, Request, Response
+from typing import Any, Dict
+from uvicorn import run
+import pyarrow as pa
+from pyarrow import ipc
+from io import BytesIO
+
 import pyarrow as pa
 from pyarrow.flight import FlightServerBase, FlightInfo
 
@@ -232,11 +239,19 @@ class UDFServer(FlightServerBase):
     _location: str
     _functions: Dict[str, UserDefinedFunction]
 
-    def __init__(self, location="0.0.0.0:8815", metric_location=None, **kwargs):
+    def __init__(
+        self,
+        location="0.0.0.0:8815",
+        metric_location=None,
+        http_location=None,
+        **kwargs,
+    ):
         super(UDFServer, self).__init__("grpc://" + location, **kwargs)
         self._location = location
         self._metric_location = metric_location
+        self._http_location = http_location
         self._functions = {}
+        self.app = FastAPI()
 
         # Initialize Prometheus metrics
         self.requests_count = Counter(
@@ -296,14 +311,31 @@ class UDFServer(FlightServerBase):
 
             def start_server():
                 start_http_server(port, host)
-                logger.info(
-                    f"Prometheus metrics server started on {self._metric_location}"
-                )
 
             metrics_thread = threading.Thread(target=start_server, daemon=True)
             metrics_thread.start()
         except Exception as e:
             logger.error(f"Failed to start metrics server: {e}")
+            raise
+
+    def _start_httpudf_server(self):
+        """Start UDF HTTP server if http_location is provided"""
+        try:
+            host, port = self._http_location.split(":")
+            port = int(port)
+            app = self.app
+
+            @app.get("/_is_http")
+            async def is_http():
+                return 1
+
+            def start_server():
+                run(app, host=host, port=port)
+
+            http_thread = threading.Thread(target=start_server, daemon=True)
+            http_thread.start()
+        except Exception as e:
+            logger.error(f"Failed to start http udf server: {e}")
             raise
 
     def get_flight_info(self, context, descriptor):
@@ -377,6 +409,25 @@ class UDFServer(FlightServerBase):
             f"RETURNS {output_type} LANGUAGE python "
             f"HANDLER = '{name}' ADDRESS = 'http://{self._location}';"
         )
+
+        ## http router register
+        @self.app.post("/" + name)
+        async def handle(request: Request):
+            # Deserialize the RecordBatch from the input data
+            body = await request.body()
+            reader = pa.ipc.open_stream(BytesIO(body))
+            batches = [b for b in reader]
+            # Apply the UDF to the data
+            result_batches = [udf.eval_batch(batch) for batch in batches]
+            # Serialize the result to send it back
+            buf = BytesIO()
+            writer = pa.ipc.new_stream(buf, udf._result_schema)
+            for batch in result_batches:
+                for b in batch:
+                    writer.write_batch(b)
+            writer.close()
+            return Response(content=buf.getvalue(), media_type="text/plain")
+
         logger.info(f"added function: {name}, SQL:\n{sql}\n")
 
     def serve(self):
@@ -387,7 +438,9 @@ class UDFServer(FlightServerBase):
             logger.info(
                 f"Prometheus metrics available at http://{self._metric_location}/metrics"
             )
-
+        if self._http_location:
+            self._start_httpudf_server()
+            logger.info(f"UDF HTTP SERVER available at http://{self._http_location}")
         super(UDFServer, self).serve()
 
 

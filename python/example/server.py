@@ -18,8 +18,12 @@ from decimal import Decimal
 import time
 from typing import List, Dict, Any, Tuple, Optional
 
+import sys, os
+
+cwd = os.getcwd()
+sys.path.append(cwd)
+
 from databend_udf import udf, UDFServer
-# from test import udf, UDFServer
 
 logging.basicConfig(level=logging.INFO)
 
@@ -314,7 +318,9 @@ def wait_concurrent(x):
 
 
 if __name__ == "__main__":
-    udf_server = UDFServer("0.0.0.0:8815", metric_location="0.0.0.0:8816")
+    udf_server = UDFServer(
+        "0.0.0.0:8815", metric_location="0.0.0.0:8816", http_location="0.0.0.0:8818"
+    )
     udf_server.add_function(add_signed)
     udf_server.add_function(add_unsigned)
     udf_server.add_function(add_float)

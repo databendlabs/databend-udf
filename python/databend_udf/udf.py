@@ -325,9 +325,9 @@ class UDFServer(FlightServerBase):
             port = int(port)
             app = self.app
 
-            @app.get("/_is_http")
-            async def is_http():
-                return 1
+            @app.get("/")
+            async def root():
+                return {"protocol" : "http", "description": "databend-udf-server"}
 
             def start_server():
                 run(app, host=host, port=port)

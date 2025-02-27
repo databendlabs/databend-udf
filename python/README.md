@@ -1,5 +1,11 @@
 ### Usage
 
+#### Features
+
+- Arrow flight server (defaults to port 8815)
+- HTTP server (disabled by default)
+- Prometheus metrics server (disabled by default)
+
 #### 1. Define your functions in a Python file
 ```python
 from databend_udf import *

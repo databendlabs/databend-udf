@@ -52,6 +52,7 @@ def bool_select(condition, a, b):
     name="gcd",
     input_types=["INT", "INT"],
     result_type="INT",
+    io_threads=1,
     skip_null=True,
 )
 def gcd(x: int, y: int) -> int:
@@ -304,7 +305,6 @@ def return_all_non_nullable(
         json,
     )
 
-
 @udf(input_types=["INT"], result_type="INT")
 def wait(x):
     time.sleep(0.1)
@@ -316,6 +316,10 @@ def wait_concurrent(x):
     time.sleep(0.1)
     return x
 
+@udf(input_types=["INT"], result_type="INT", batch_mode=True)
+def wait_batch(x: List[int]) -> List[int]:
+    time.sleep(0.1)
+    return x
 
 if __name__ == "__main__":
     udf_server = UDFServer(
@@ -344,4 +348,5 @@ if __name__ == "__main__":
     udf_server.add_function(return_all_non_nullable)
     udf_server.add_function(wait)
     udf_server.add_function(wait_concurrent)
+    udf_server.add_function(wait_batch)
     udf_server.serve()

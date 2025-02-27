@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+import time
 import logging
 import inspect
 from concurrent.futures import ThreadPoolExecutor
@@ -22,6 +23,7 @@ from prometheus_client import start_http_server
 import threading
 
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import StreamingResponse
 from typing import Any, Dict
 from uvicorn import run
 import pyarrow as pa
@@ -223,7 +225,6 @@ def udf(
             batch_mode=batch_mode,
         )
 
-
 class UDFServer(FlightServerBase):
     """
     A server that provides user-defined functions to clients.
@@ -325,6 +326,15 @@ class UDFServer(FlightServerBase):
             port = int(port)
             app = self.app
 
+            # Middleware to measure elapsed time
+            @app.middleware("http")
+            async def log_elapsed_time(request: Request, call_next):
+                start_time = time.time()
+                response = await call_next(request)
+                elapsed_time = time.time() - start_time
+                logger.info(f"{request.method} {request.url.path} - From {start_time}, Elapsed time: {elapsed_time:.4f} seconds")
+                return response
+
             @app.get("/")
             async def root():
                 return {"protocol" : "http", "description": "databend-udf-server"}
@@ -411,22 +421,36 @@ class UDFServer(FlightServerBase):
         )
 
         ## http router register
+        @self.app.get("/" + name)
+        async def flight_info():
+            # Return the flight info schema of the function
+            full_schema = pa.schema(list(udf._input_schema) + list(udf._result_schema))
+            # Serialize the schema using PyArrow's IPC
+            buf = BytesIO()
+            writer = pa.ipc.new_stream(buf, full_schema)
+            writer.close()
+            # Return the serialized schema as a streaming response
+            return Response(content=buf.getvalue(), media_type="application/octet-stream")
+
         @self.app.post("/" + name)
         async def handle(request: Request):
             # Deserialize the RecordBatch from the input data
             body = await request.body()
             reader = pa.ipc.open_stream(BytesIO(body))
-            batches = [b for b in reader]
-            # Apply the UDF to the data
-            result_batches = [udf.eval_batch(batch) for batch in batches]
-            # Serialize the result to send it back
-            buf = BytesIO()
-            writer = pa.ipc.new_stream(buf, udf._result_schema)
-            for batch in result_batches:
-                for b in batch:
+            batch = next(reader)
+
+             # Create a generator that applies the UDF to the data and yields the results
+            async def generate_batches():
+                # Get the first batch from the reader
+                result_batch = udf.eval_batch(batch)
+                buf = BytesIO()
+                writer = pa.ipc.new_stream(buf, udf._result_schema)
+                for b in result_batch:
                     writer.write_batch(b)
-            writer.close()
-            return Response(content=buf.getvalue(), media_type="text/plain")
+                writer.close()
+                yield buf.getvalue()
+
+            return StreamingResponse(generate_batches(), media_type="application/octet-stream")
 
         logger.info(f"added function: {name}, SQL:\n{sql}\n")
 

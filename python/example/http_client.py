@@ -18,6 +18,13 @@ def main():
     )
     batch = pa.RecordBatch.from_arrays(data, schema=schema)
 
+
+    # fetch result schema
+    response = requests.get("http://localhost:8818/gcd")
+    reader = pa.ipc.open_stream(BytesIO(response.content))
+    schema = reader.schema
+    print("schema \n\n", schema)
+
     # Serialize the RecordBatch
     buf = BytesIO()
     writer = pa.ipc.new_stream(buf, batch.schema)
@@ -27,11 +34,9 @@ def main():
 
     # Send the serialized RecordBatch to the server
     response = requests.post("http://localhost:8818/gcd", data=serialized_batch)
-
     # Deserialize the response
     reader = pa.ipc.open_stream(BytesIO(response.content))
     result_batches = [b for b in reader]
-
     # Print the result
     for batch in result_batches:
         print("res \n", batch)

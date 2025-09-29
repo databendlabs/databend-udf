@@ -16,6 +16,12 @@ dependencies = [
 ]
 [project.optional-dependencies]
 lint = ["ruff"]
+test = ["pytest"]
+ai = ["openai", "anthropic", "ollama", "sentence-transformers"]
+openai = ["openai"]
+claude = ["anthropic"]
+ollama = ["ollama"]
+embedding = ["sentence-transformers"]
 
 [project.urls]
 Repository = "https://github.com/datafuselabs/databend-udf"

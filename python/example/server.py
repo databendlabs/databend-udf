@@ -64,7 +64,7 @@ def gcd(x: int, y: int) -> int:
 )
 def gcd_batch(x: list[int], y: list[int]) -> list[int]:
     def gcd_single(x_i, y_i):
-        if x_i == None or y_i == None:
+        if x_i is None or y_i is None:
             return None
         while y_i != 0:
             (x_i, y_i) = (y_i, x_i % y_i)

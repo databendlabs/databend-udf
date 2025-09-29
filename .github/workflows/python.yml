@@ -20,20 +20,33 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Python
+      - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         working-directory: python
-        run: pip install ruff
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[lint,test]
+      - name: Lint with ruff
+        working-directory: python
+        run: |
+          ruff check .
       - name: Check format
         working-directory: python
         run: |
           ruff format --check .
-      - name: build
+      - name: Run tests
+        working-directory: python
+        run: |
+          python -m pytest tests/ -v --tb=short
+      - name: Build package
         working-directory: python
         run: |
           python -m pip install build

@@ -1,10 +1,10 @@
-"""
-Simple client library for testing Databend UDF servers.
-"""
+"""Simple client library for testing Databend UDF servers."""
+
+import json
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 import pyarrow as pa
 import pyarrow.flight as fl
-from typing import List, Any
 
 
 class UDFClient:
@@ -135,7 +135,69 @@ class UDFClient:
         descriptor = fl.FlightDescriptor.for_path(function_name)
         return self.client.get_flight_info(descriptor)
 
-    def call_function(self, function_name: str, *args) -> List[Any]:
+    @staticmethod
+    def format_stage_mapping(stage_locations: Iterable[Dict[str, Any]]) -> str:
+        """Serialize stage mapping entries to the Databend header payload."""
+
+        serialized_entries: List[Dict[str, Any]] = []
+        for entry in stage_locations:
+            if not isinstance(entry, dict):
+                raise ValueError("stage_locations entries must be dictionaries")
+            if "param_name" not in entry:
+                raise ValueError("stage_locations entry requires 'param_name'")
+            serialized_entries.append(entry)
+
+        return json.dumps(serialized_entries)
+
+    @staticmethod
+    def _build_flight_headers(
+        headers: Dict[str, Any] = None,
+        stage_locations: Iterable[Dict[str, Any]] = None,
+    ) -> Sequence[Tuple[str, str]]:
+        """Construct Flight headers for a UDF call.
+
+        ``stage_locations`` becomes a single header named ``databend-stage-mapping``
+        whose value is a JSON array. This mirrors what Databend Query sends to
+        external UDF servers. Example HTTP-style representation::
+
+            databend-stage-mapping: [
+              {
+                "param_name": "stage_loc",
+                "relative_path": "input/2024/",
+                "stage_info": { ... StageInfo JSON ... }
+              }
+            ]
+
+        Multiple stage parameters simply append more objects to the array.
+        Additional custom headers can be supplied through ``headers``.
+        """
+        headers = headers or {}
+        flight_headers: List[Tuple[bytes, bytes]] = []
+
+        for key, value in headers.items():
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    flight_headers.append(
+                        (str(key).encode("utf-8"), str(item).encode("utf-8"))
+                    )
+            else:
+                flight_headers.append(
+                    (str(key).encode("utf-8"), str(value).encode("utf-8"))
+                )
+
+        if stage_locations:
+            payload = UDFClient.format_stage_mapping(stage_locations)
+            flight_headers.append((b"databend-stage-mapping", payload.encode("utf-8")))
+
+        return flight_headers
+
+    def call_function(
+        self,
+        function_name: str,
+        *args,
+        headers: Dict[str, Any] = None,
+        stage_locations: Iterable[Dict[str, Any]] = None,
+    ) -> List[Any]:
         """
         Call a UDF function with given arguments.
 
@@ -150,7 +212,11 @@ class UDFClient:
 
         # Call function
         descriptor = fl.FlightDescriptor.for_path(function_name)
-        writer, reader = self.client.do_exchange(descriptor=descriptor)
+        flight_headers = self._build_flight_headers(headers, stage_locations)
+        options = (
+            fl.FlightCallOptions(headers=flight_headers) if flight_headers else None
+        )
+        writer, reader = self.client.do_exchange(descriptor=descriptor, options=options)
 
         with writer:
             writer.begin(input_schema)
@@ -166,7 +232,13 @@ class UDFClient:
 
         return results
 
-    def call_function_batch(self, function_name: str, **kwargs) -> List[Any]:
+    def call_function_batch(
+        self,
+        function_name: str,
+        headers: Dict[str, Any] = None,
+        stage_locations: Iterable[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> List[Any]:
         """
         Call a UDF function with batch data.
 
@@ -181,7 +253,11 @@ class UDFClient:
 
         # Call function
         descriptor = fl.FlightDescriptor.for_path(function_name)
-        writer, reader = self.client.do_exchange(descriptor=descriptor)
+        flight_headers = self._build_flight_headers(headers, stage_locations)
+        options = (
+            fl.FlightCallOptions(headers=flight_headers) if flight_headers else None
+        )
+        writer, reader = self.client.do_exchange(descriptor=descriptor, options=options)
 
         with writer:
             writer.begin(input_schema)

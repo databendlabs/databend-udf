@@ -132,6 +132,32 @@ def basic_server():
 
 
 @pytest.fixture
+def stage_server():
+    """Server exposing stage-aware UDFs."""
+    script_path = os.path.join(os.path.dirname(__file__), "servers", "stage_server.py")
+    manager = ServerManager(script_path)
+
+    if not manager.start():
+        pytest.fail("Failed to start stage server")
+
+    yield manager
+    manager.stop()
+
+
+@pytest.fixture
+def demo_server():
+    """Self-contained demo server for example UDFs."""
+    script_path = os.path.join(os.path.dirname(__file__), "servers", "demo_server.py")
+    manager = ServerManager(script_path)
+
+    if not manager.start():
+        pytest.fail("Failed to start demo server")
+
+    yield manager
+    manager.stop()
+
+
+@pytest.fixture
 def full_server():
     """Full server with all example functions."""
     script_path = os.path.join(

@@ -147,3 +147,12 @@ python3 examples/server.py
 
 ### Acknowledgement
 Databend Python UDF Server API is inspired by [RisingWave Python API](https://pypi.org/project/risingwave/).
+
+### Code Formatting
+
+Use Ruff to keep the Python sources consistent:
+
+```bash
+python -m pip install ruff  # once
+python -m ruff format python/databend_udf python/tests
+```

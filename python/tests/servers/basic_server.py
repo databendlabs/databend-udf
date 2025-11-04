@@ -7,12 +7,15 @@ import logging
 import os
 import sys
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
 import pyarrow as pa
-from databend_udf import udf, UDFServer
+
+try:
+    from databend_udf import udf, UDFServer
+except ModuleNotFoundError:  # pragma: no cover - fallback for local execution
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    from databend_udf import udf, UDFServer
 
 logging.basicConfig(level=logging.INFO)
 
@@ -61,8 +64,6 @@ def create_basic_server(port=8815):
 
 
 if __name__ == "__main__":
-    import sys
-
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8815
     server = create_basic_server(port)
     server.serve()

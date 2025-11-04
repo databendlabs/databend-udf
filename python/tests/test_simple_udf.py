@@ -86,3 +86,20 @@ def test_batch_array_length_validation(basic_server):
         assert False, "Should have raised ValueError for inconsistent array lengths"
     except ValueError as e:
         assert "All batch arrays must have the same length" in str(e)
+
+
+def test_table_function_returns_records(basic_server):
+    """Test table-valued function returning multiple columns."""
+    client = basic_server.get_client()
+
+    batch_result = client.call_function_batch(
+        "expand_numbers", nums=[1, 2, 3]
+    )
+    assert batch_result == [
+        {"num": 1, "double_num": 2},
+        {"num": 2, "double_num": 4},
+        {"num": 3, "double_num": 6},
+    ]
+
+    single_result = client.call_function("expand_numbers", 5)
+    assert single_result == [{"num": 5, "double_num": 10}]

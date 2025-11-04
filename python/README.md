@@ -42,6 +42,23 @@ def wait_concurrent(x):
     time.sleep(2)
     return x
 
+# Define a table-valued function that emits multiple columns.
+@udf(
+    input_types=["INT"],
+    result_type=[("num", "INT"), ("double_num", "INT")],
+    batch_mode=True,
+)
+def expand_numbers(nums: List[int]):
+    import pyarrow as pa
+
+    schema = pa.schema(
+        [pa.field("num", pa.int32(), nullable=False), pa.field("double_num", pa.int32(), nullable=False)]
+    )
+    return pa.RecordBatch.from_arrays(
+        [pa.array(nums, type=pa.int32()), pa.array([n * 2 for n in nums], type=pa.int32())],
+        schema=schema,
+    )
+
 if __name__ == '__main__':
     # create a UDF server listening at '0.0.0.0:8815'
     server = UDFServer("0.0.0.0:8815")
@@ -50,6 +67,7 @@ if __name__ == '__main__':
     server.add_function(gcd)
     server.add_function(array_index_of)
     server.add_function(wait_concurrent)
+    server.add_function(expand_numbers)
     # start the UDF server
     server.serve()
 ```

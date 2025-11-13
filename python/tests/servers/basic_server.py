@@ -22,12 +22,17 @@ def gcd(x, y):
 
 
 @udf(
-    input_types=["INT"],
-    result_type=[("num", "INT"), ("double_num", "INT")],
+    input_types=["INT", "INT"],
+    result_type=[("left", "INT"), ("right", "INT"), ("sum", "INT")],
     batch_mode=True,
 )
-def expand_numbers(nums):
-    return [{"num": value, "double_num": value * 2} for value in nums]
+def expand_pairs(lhs, rhs):
+    if len(lhs) != len(rhs):
+        raise ValueError("lhs and rhs must have the same length")
+    return [
+        {"left": left, "right": right, "sum": left + right}
+        for left, right in zip(lhs, rhs)
+    ]
 
 
 def create_basic_server(port=8815):
@@ -35,7 +40,7 @@ def create_basic_server(port=8815):
     server = UDFServer(f"0.0.0.0:{port}")
     server.add_function(add_two_ints)
     server.add_function(gcd)
-    server.add_function(expand_numbers)
+    server.add_function(expand_pairs)
     return server
 
 

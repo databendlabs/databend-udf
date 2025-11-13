@@ -92,9 +92,7 @@ def test_table_function_returns_records(basic_server):
     """Test table-valued function returning multiple columns."""
     client = basic_server.get_client()
 
-    batch_result = client.call_function_batch(
-        "expand_numbers", nums=[1, 2, 3]
-    )
+    batch_result = client.call_function_batch("expand_numbers", nums=[1, 2, 3])
     assert batch_result == [
         {"num": 1, "double_num": 2},
         {"num": 2, "double_num": 4},

@@ -388,6 +388,7 @@ class CallableFunction(UserDefinedFunction):
     This handles parsing function parameters, stage bindings, and schema
     construction so both scalar and table-valued functions can reuse the logic.
     """
+
     _func: Callable
     _stage_ref_names: List[str]
     _headers_param: Optional[str]
@@ -504,7 +505,9 @@ class CallableFunction(UserDefinedFunction):
     def _ensure_headers(self, headers: Optional[Headers]) -> Headers:
         return headers if isinstance(headers, Headers) else Headers(headers)
 
-    def _resolve_stage_locations(self, headers_obj: Headers) -> Dict[str, StageLocation]:
+    def _resolve_stage_locations(
+        self, headers_obj: Headers
+    ) -> Dict[str, StageLocation]:
         stage_locations: Dict[str, StageLocation] = {}
         if self._stage_ref_names:
             stage_locations_by_ref = headers_obj.require_stage_locations(
@@ -839,8 +842,7 @@ class TableFunction(CallableFunction):
         if not mapping:
             return True
         return all(
-            isinstance(values, Sequence)
-            and not isinstance(values, (bytes, str))
+            isinstance(values, Sequence) and not isinstance(values, (bytes, str))
             for values in mapping.values()
         )
 
@@ -879,7 +881,9 @@ def _normalize_result_type(
                 field = _to_arrow_field(item).with_name(f"col{idx}")
             fields.append(field)
         if not fields:
-            raise ValueError("Table function result_type must contain at least one column")
+            raise ValueError(
+                "Table function result_type must contain at least one column"
+            )
         _ensure_unique_names([field.name for field in fields])
         return fields, True
 
@@ -918,6 +922,7 @@ def udf(
     )
 
     if is_table:
+
         def decorator(f):
             return TableFunction(
                 f,
@@ -933,6 +938,7 @@ def udf(
         return decorator
 
     if io_threads is not None and io_threads > 1:
+
         def decorator(f):
             return ScalarFunction(
                 f,
@@ -959,6 +965,7 @@ def udf(
         )
 
     return decorator
+
 
 class UDFServer(FlightServerBase):
     """
@@ -1062,7 +1069,9 @@ class UDFServer(FlightServerBase):
         # return the concatenation of input and output schema
         full_schema = pa.schema(list(udf._input_schema) + list(udf._result_schema))
         metadata = dict(full_schema.metadata.items()) if full_schema.metadata else {}
-        metadata[_SCHEMA_METADATA_INPUT_COUNT_KEY] = str(len(udf._input_schema)).encode("utf-8")
+        metadata[_SCHEMA_METADATA_INPUT_COUNT_KEY] = str(len(udf._input_schema)).encode(
+            "utf-8"
+        )
         full_schema = full_schema.with_metadata(metadata)
         return FlightInfo(
             schema=full_schema,

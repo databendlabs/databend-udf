@@ -42,6 +42,15 @@ def wait_concurrent(x):
     time.sleep(2)
     return x
 
+# Define a table-valued function that expands inputs into multiple rows.
+@udf(
+    input_types=["INT"],
+    result_type=[("num", "INT"), ("double_num", "INT")],
+    batch_mode=True,
+)
+def expand_numbers(nums: List[int]):
+    return [{"num": value, "double_num": value * 2} for value in nums]
+
 if __name__ == '__main__':
     # create a UDF server listening at '0.0.0.0:8815'
     server = UDFServer("0.0.0.0:8815")

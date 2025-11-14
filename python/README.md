@@ -42,6 +42,19 @@ def wait_concurrent(x):
     time.sleep(2)
     return x
 
+# Define a table-valued function that emits multiple columns per row.
+@udf(
+    input_types=["INT", "INT"],
+    result_type=[("left", "INT"), ("right", "INT"), ("sum", "INT")],
+    batch_mode=True,
+)
+def expand_pairs(left: List[int], right: List[int]):
+    if len(left) != len(right):
+        raise ValueError("Inputs must have the same length")
+    return [
+        {"left": l, "right": r, "sum": l + r} for l, r in zip(left, right)
+    ]
+
 if __name__ == '__main__':
     # create a UDF server listening at '0.0.0.0:8815'
     server = UDFServer("0.0.0.0:8815")

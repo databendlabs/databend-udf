@@ -27,6 +27,9 @@ from typing import (
     Dict,
     Any,
     Tuple,
+    Mapping,
+    Sequence,
+    Iterable,
 )
 from typing import get_args, get_origin
 from prometheus_client import Counter, Gauge, Histogram
@@ -48,6 +51,7 @@ EXTENSION_KEY = b"Extension"
 ARROW_EXT_TYPE_VARIANT = b"Variant"
 
 TIMESTAMP_UINT = "us"
+_SCHEMA_METADATA_INPUT_COUNT_KEY = b"x-databend-udf-input-count"
 
 logger = logging.getLogger(__name__)
 
@@ -378,30 +382,33 @@ class UserDefinedFunction:
         return iter([])
 
 
-class ScalarFunction(UserDefinedFunction):
-    """
-    Base interface for user-defined scalar function.
-    A user-defined scalar functions maps zero, one,
-    or multiple scalar values to a new scalar value.
+class CallableFunction(UserDefinedFunction):
+    """Shared implementation for callable UDFs.
+
+    This handles parsing function parameters, stage bindings, and schema
+    construction so both scalar and table-valued functions can reuse the logic.
     """
 
     _func: Callable
-    _io_threads: Optional[int]
-    _executor: Optional[ThreadPoolExecutor]
-    _skip_null: bool
-    _batch_mode: bool
+    _stage_ref_names: List[str]
+    _headers_param: Optional[str]
+    _stage_param_to_ref: Dict[str, str]
+    _stage_param_set: set
+    _arg_order: List[str]
+    _data_arg_names: List[str]
+    _call_arg_layout: List[Tuple[str, str]]
+    _data_arg_indices: Dict[str, int]
+    _sql_parameter_defs: List[str]
+    _is_table_function: bool
 
     def __init__(
         self,
         func,
         input_types,
-        result_type,
-        name=None,
+        result_fields,
+        name: Optional[str] = None,
         stage_refs: Optional[List[str]] = None,
-        io_threads=None,
-        skip_null=None,
-        batch_mode=False,
-    ):
+    ) -> None:
         self._func = func
         self._stage_ref_names = list(stage_refs or [])
         if len(self._stage_ref_names) != len(set(self._stage_ref_names)):
@@ -409,7 +416,7 @@ class ScalarFunction(UserDefinedFunction):
 
         spec = inspect.getfullargspec(func)
         arg_names = list(spec.args)
-        self._headers_param: Optional[str] = None
+        self._headers_param = None
         if arg_names and arg_names[-1] == "headers":
             self._headers_param = arg_names.pop()
 
@@ -420,7 +427,6 @@ class ScalarFunction(UserDefinedFunction):
             if _annotation_matches_stage_location(annotations.get(name))
         ]
 
-        stage_param_python_names: List[str]
         if self._stage_ref_names:
             if all(ref in arg_names for ref in self._stage_ref_names):
                 stage_param_python_names = list(self._stage_ref_names)
@@ -446,8 +452,7 @@ class ScalarFunction(UserDefinedFunction):
             param: ref
             for param, ref in zip(stage_param_python_names, self._stage_ref_names)
         }
-        self._stage_param_names = stage_param_python_names
-        self._stage_param_set = set(self._stage_param_names)
+        self._stage_param_set = set(stage_param_python_names)
 
         self._arg_order = list(arg_names)
         self._data_arg_names = [
@@ -469,21 +474,12 @@ class ScalarFunction(UserDefinedFunction):
             name: idx for idx, name in enumerate(self._data_arg_names)
         }
 
-        self._result_schema = pa.schema(
-            [_to_arrow_field(result_type).with_name("output")]
-        )
+        self._result_schema = pa.schema(result_fields)
         self._name = name or (
             func.__name__ if hasattr(func, "__name__") else func.__class__.__name__
         )
-        self._io_threads = io_threads
-        self._batch_mode = batch_mode
-        self._executor = (
-            ThreadPoolExecutor(max_workers=self._io_threads)
-            if self._io_threads is not None
-            else None
-        )
 
-        self._call_arg_layout: List[Tuple[str, str]] = []
+        self._call_arg_layout = []
         for parameter in self._arg_order:
             if parameter in self._stage_param_set:
                 self._call_arg_layout.append(("stage", parameter))
@@ -493,7 +489,7 @@ class ScalarFunction(UserDefinedFunction):
             self._call_arg_layout.append(("headers", self._headers_param))
 
         data_field_map = {field.name: field for field in self._input_schema}
-        self._sql_parameter_defs: List[str] = []
+        self._sql_parameter_defs = []
         for kind, identifier in self._call_arg_layout:
             if kind == "stage":
                 stage_ref_name = self._stage_param_to_ref.get(identifier, identifier)
@@ -504,19 +500,14 @@ class ScalarFunction(UserDefinedFunction):
                     f"{field.name} {_arrow_field_to_string(field)}"
                 )
 
-        if skip_null and not self._result_schema.field(0).nullable:
-            raise ValueError(
-                f"Return type of function {self._name} must be nullable when skip_null is True"
-            )
+        self._is_table_function = False
 
-        self._skip_null = skip_null or False
-        super().__init__()
+    def _ensure_headers(self, headers: Optional[Headers]) -> Headers:
+        return headers if isinstance(headers, Headers) else Headers(headers)
 
-    def eval_batch(
-        self, batch: pa.RecordBatch, headers: Optional[Headers] = None
-    ) -> Iterator[pa.RecordBatch]:
-        headers_obj = headers if isinstance(headers, Headers) else Headers(headers)
-
+    def _resolve_stage_locations(
+        self, headers_obj: Headers
+    ) -> Dict[str, StageLocation]:
         stage_locations: Dict[str, StageLocation] = {}
         if self._stage_ref_names:
             stage_locations_by_ref = headers_obj.require_stage_locations(
@@ -541,13 +532,96 @@ class ScalarFunction(UserDefinedFunction):
                     raise ValueError(
                         f"Stage parameter '{name}' must not use 'fs' storage"
                     )
+        return stage_locations
 
+    def _convert_inputs(self, batch: pa.RecordBatch) -> List[List[Any]]:
         processed_inputs: List[List[Any]] = []
         for array, field in zip(batch, self._input_schema):
             python_values = [value.as_py() for value in array]
             processed_inputs.append(
                 _input_process_func(_list_field(field))(python_values)
             )
+        return processed_inputs
+
+    def _assemble_args(
+        self,
+        data_inputs: List[List[Any]],
+        stage_locations: Dict[str, StageLocation],
+        headers: Headers,
+        row_idx: Optional[int],
+    ) -> List[Any]:
+        args: List[Any] = []
+        for kind, identifier in self._call_arg_layout:
+            if kind == "data":
+                data_index = self._data_arg_indices[identifier]
+                values = data_inputs[data_index]
+                args.append(values if row_idx is None else values[row_idx])
+            elif kind == "stage":
+                if identifier not in stage_locations:
+                    raise ValueError(
+                        f"Missing stage mapping for parameter '{identifier}'"
+                    )
+                args.append(stage_locations[identifier])
+            elif kind == "headers":
+                args.append(headers)
+        return args
+
+    def _row_has_null(self, data_inputs: List[List[Any]], row_idx: int) -> bool:
+        for values in data_inputs:
+            if values[row_idx] is None:
+                return True
+        return False
+
+    def __call__(self, *args):
+        return self._func(*args)
+
+
+class ScalarFunction(CallableFunction):
+    """User-defined scalar function implementation."""
+
+    _io_threads: Optional[int]
+    _executor: Optional[ThreadPoolExecutor]
+    _skip_null: bool
+    _batch_mode: bool
+
+    def __init__(
+        self,
+        func,
+        input_types,
+        result_type,
+        name=None,
+        stage_refs: Optional[List[str]] = None,
+        io_threads=None,
+        skip_null=None,
+        batch_mode=False,
+    ):
+        result_fields, is_table = _normalize_result_type(result_type)
+        if is_table:
+            raise ValueError("ScalarFunction result_type must describe a single value")
+
+        super().__init__(func, input_types, result_fields, name, stage_refs)
+        self._io_threads = io_threads
+        self._batch_mode = batch_mode
+        self._executor = (
+            ThreadPoolExecutor(max_workers=self._io_threads)
+            if self._io_threads is not None
+            else None
+        )
+
+        if skip_null and not self._result_schema.field(0).nullable:
+            raise ValueError(
+                f"Return type of function {self._name} must be nullable when skip_null is True"
+            )
+
+        self._skip_null = skip_null or False
+        self._is_table_function = False
+
+    def eval_batch(
+        self, batch: pa.RecordBatch, headers: Optional[Headers] = None
+    ) -> Iterator[pa.RecordBatch]:
+        headers_obj = self._ensure_headers(headers)
+        stage_locations = self._resolve_stage_locations(headers_obj)
+        processed_inputs = self._convert_inputs(batch)
 
         if self._batch_mode:
             call_args = self._assemble_args(
@@ -586,37 +660,240 @@ class ScalarFunction(UserDefinedFunction):
         array = pa.array(column, type=self._result_schema.types[0])
         yield pa.RecordBatch.from_arrays([array], schema=self._result_schema)
 
-    def _assemble_args(
+
+class TableFunction(CallableFunction):
+    """Table-valued function that returns zero or more rows."""
+
+    _batch_mode: bool
+
+    def __init__(
         self,
-        data_inputs: List[List[Any]],
-        stage_locations: Dict[str, StageLocation],
-        headers: Headers,
-        row_idx: Optional[int],
-    ) -> List[Any]:
-        args: List[Any] = []
-        for kind, identifier in self._call_arg_layout:
-            if kind == "data":
-                data_index = self._data_arg_indices[identifier]
-                values = data_inputs[data_index]
-                args.append(values if row_idx is None else values[row_idx])
-            elif kind == "stage":
-                if identifier not in stage_locations:
+        func,
+        input_types,
+        result_type,
+        name=None,
+        stage_refs: Optional[List[str]] = None,
+        io_threads=None,
+        skip_null=None,
+        batch_mode=False,
+    ):
+        if io_threads not in (None, 0, 1):
+            raise ValueError("Table functions do not support io_threads > 1")
+        if skip_null:
+            raise ValueError("Table functions do not support skip_null semantics")
+
+        result_fields, is_table = _normalize_result_type(result_type)
+        if not is_table:
+            raise ValueError(
+                "TableFunction result_type must describe a table result (list of columns)"
+            )
+
+        super().__init__(func, input_types, result_fields, name, stage_refs)
+        self._batch_mode = bool(batch_mode)
+        self._is_table_function = True
+
+    def eval_batch(
+        self, batch: pa.RecordBatch, headers: Optional[Headers] = None
+    ) -> Iterator[pa.RecordBatch]:
+        headers_obj = self._ensure_headers(headers)
+        stage_locations = self._resolve_stage_locations(headers_obj)
+        processed_inputs = self._convert_inputs(batch)
+
+        if self._batch_mode:
+            call_args = self._assemble_args(
+                processed_inputs, stage_locations, headers_obj, row_idx=None
+            )
+            yield from self._iter_output_batches(self._func(*call_args))
+        else:
+            for row in range(batch.num_rows):
+                call_args = self._assemble_args(
+                    processed_inputs, stage_locations, headers_obj, row
+                )
+                yield from self._iter_output_batches(self._func(*call_args))
+
+    def _iter_output_batches(self, result: Any) -> Iterator[pa.RecordBatch]:
+        if result is None:
+            return
+        if isinstance(result, pa.RecordBatch):
+            yield self._align_record_batch(result)
+            return
+        if isinstance(result, pa.Table):
+            for batch in result.to_batches():
+                yield self._align_record_batch(batch)
+            return
+        if isinstance(result, Mapping):
+            if self._is_column_mapping(result):
+                yield self._dict_to_batch(result)
+            else:
+                yield self._build_batch_from_rows([result])
+            return
+        if isinstance(result, Iterable) and not isinstance(result, (bytes, str)):
+            pending_rows: List[Any] = []
+            for item in result:
+                if isinstance(item, (pa.RecordBatch, pa.Table)):
+                    if pending_rows:
+                        yield self._build_batch_from_rows(pending_rows)
+                        pending_rows = []
+                    yield from self._iter_output_batches(item)
+                elif isinstance(item, Mapping) and self._is_column_mapping(item):
+                    if pending_rows:
+                        yield self._build_batch_from_rows(pending_rows)
+                        pending_rows = []
+                    yield self._dict_to_batch(item)
+                else:
+                    pending_rows.append(item)
+            if pending_rows:
+                yield self._build_batch_from_rows(pending_rows)
+            return
+        raise TypeError(
+            f"Table function {self._name} must yield records, mappings, or pyarrow batches"
+        )
+
+    def _dict_to_batch(self, mapping: Mapping[str, Sequence[Any]]) -> pa.RecordBatch:
+        lengths = set()
+        columns: List[pa.Array] = []
+        for field in self._result_schema:
+            if field.name not in mapping:
+                raise ValueError(
+                    f"Missing expected column '{field.name}' in column mapping"
+                )
+            values = list(mapping[field.name])
+            lengths.add(len(values))
+            columns.append(self._column_from_values(field, values))
+        if len(lengths) > 1:
+            raise ValueError("Column mapping contains columns of differing lengths")
+        return pa.RecordBatch.from_arrays(columns, schema=self._result_schema)
+
+    def _build_batch_from_rows(self, rows: List[Any]) -> pa.RecordBatch:
+        if not rows:
+            return pa.RecordBatch.from_arrays(
+                [pa.array([], type=field.type) for field in self._result_schema],
+                schema=self._result_schema,
+            )
+        first = rows[0]
+        if isinstance(first, Mapping) and not self._is_column_mapping(first):
+            return self._to_batch_from_row_dicts(rows)
+        if isinstance(first, Sequence) and not isinstance(first, (bytes, str)):
+            return self._to_batch_from_row_sequences(rows)
+        raise TypeError(
+            f"Table function {self._name} returned unsupported rows of type {type(first)}"
+        )
+
+    def _to_batch_from_row_dicts(self, rows: List[Mapping[str, Any]]) -> pa.RecordBatch:
+        columns: List[pa.Array] = []
+        for field in self._result_schema:
+            values = []
+            for row in rows:
+                if not isinstance(row, Mapping):
+                    raise TypeError("Row dictionaries must be Mapping instances")
+                if field.name not in row:
                     raise ValueError(
-                        f"Missing stage mapping for parameter '{identifier}'"
+                        f"Missing column '{field.name}' in table function row"
                     )
-                args.append(stage_locations[identifier])
-            elif kind == "headers":
-                args.append(headers)
-        return args
+                values.append(row[field.name])
+            columns.append(self._column_from_values(field, values))
+        return pa.RecordBatch.from_arrays(columns, schema=self._result_schema)
 
-    def _row_has_null(self, data_inputs: List[List[Any]], row_idx: int) -> bool:
-        for values in data_inputs:
-            if values[row_idx] is None:
-                return True
-        return False
+    def _to_batch_from_row_sequences(self, rows: List[Sequence[Any]]) -> pa.RecordBatch:
+        if not rows:
+            return pa.RecordBatch.from_arrays(
+                [pa.array([], type=field.type) for field in self._result_schema],
+                schema=self._result_schema,
+            )
+        column_count = len(self._result_schema)
+        columns: List[pa.Array] = []
+        for idx, field in enumerate(self._result_schema):
+            values = []
+            for row in rows:
+                if not isinstance(row, Sequence) or isinstance(row, (bytes, str)):
+                    raise TypeError("Row sequences must be Sequence instances")
+                if len(row) != column_count:
+                    raise ValueError(
+                        f"Row sequence length {len(row)} does not match expected column count {column_count}"
+                    )
+                values.append(row[idx])
+            columns.append(self._column_from_values(field, values))
+        return pa.RecordBatch.from_arrays(columns, schema=self._result_schema)
 
-    def __call__(self, *args):
-        return self._func(*args)
+    def _column_from_values(self, field: pa.Field, values: Sequence[Any]) -> pa.Array:
+        processor = _output_process_func(field)
+        processed = [processor(value) for value in values]
+        return pa.array(processed, type=field.type)
+
+    def _align_record_batch(self, batch: pa.RecordBatch) -> pa.RecordBatch:
+        if batch.schema.equals(self._result_schema, check_metadata=False):
+            return batch
+        columns = []
+        for field in self._result_schema:
+            index = batch.schema.get_field_index(field.name)
+            if index == -1:
+                raise ValueError(
+                    f"Missing expected column '{field.name}' in table function result"
+                )
+            source_field = batch.schema.field(index)
+            if not source_field.type.equals(field.type, check_metadata=False):
+                raise ValueError(
+                    f"Column '{field.name}' type mismatch: expected {field.type}, got {source_field.type}"
+                )
+            columns.append(batch.column(index))
+        return pa.RecordBatch.from_arrays(columns, schema=self._result_schema)
+
+    def _is_column_mapping(self, mapping: Mapping[str, Any]) -> bool:
+        if not mapping:
+            return True
+        return all(
+            isinstance(values, Sequence) and not isinstance(values, (bytes, str))
+            for values in mapping.values()
+        )
+
+
+def _normalize_result_type(
+    result_type: Any, default_name: str = "output"
+) -> Tuple[List[pa.Field], bool]:
+    """Normalize the declared result_type into Arrow fields.
+
+    Returns:
+        (fields, is_table) where ``is_table`` signals if the result describes
+        multiple columns.
+    """
+    if isinstance(result_type, pa.Schema):
+        fields = list(result_type)
+        if not fields:
+            raise ValueError("Result schema must contain at least one column")
+        _ensure_unique_names([field.name for field in fields])
+        return fields, True
+
+    if isinstance(result_type, pa.Field):
+        field = result_type if result_type.name else result_type.with_name(default_name)
+        return [field], True
+
+    if isinstance(result_type, (list, tuple)) and not isinstance(
+        result_type, (str, bytes)
+    ):
+        fields: List[pa.Field] = []
+        for idx, item in enumerate(result_type):
+            if isinstance(item, pa.Field):
+                field = item if item.name else item.with_name(f"col{idx}")
+            elif isinstance(item, tuple) and len(item) == 2:
+                name, type_def = item
+                field = _to_arrow_field(type_def).with_name(str(name))
+            else:
+                field = _to_arrow_field(item).with_name(f"col{idx}")
+            fields.append(field)
+        if not fields:
+            raise ValueError(
+                "Table function result_type must contain at least one column"
+            )
+        _ensure_unique_names([field.name for field in fields])
+        return fields, True
+
+    field = _to_arrow_field(result_type).with_name(default_name)
+    return [field], False
+
+
+def _ensure_unique_names(names: List[str]) -> None:
+    if len(names) != len(set(names)):
+        raise ValueError("Result columns must have unique names")
 
 
 def udf(
@@ -628,69 +905,66 @@ def udf(
     skip_null: Optional[bool] = False,
     batch_mode: Optional[bool] = False,
 ) -> Callable:
-    """
-    Annotation for creating a user-defined scalar function.
+    """Annotation for defining scalar or table-valued UDFs.
 
     Parameters:
-    - input_types: A list of strings or Arrow data types that specifies the input data types.
-    - result_type: A string or an Arrow data type that specifies the return value type.
-    - name: An optional string specifying the function name.
-            If not provided, the original name will be used.
-    - stage_refs: Optional list of parameter names that should be resolved as stage
-                  locations. These parameters will be injected as `StageLocation`
-                  objects when the function executes.
-    - io_threads: Number of I/O threads used per data chunk for I/O bound functions.
-    - skip_null: A boolean value specifying whether to skip NULL value. If it is set to True,
-                NULL values will not be passed to the function,
-                and the corresponding return value is set to NULL. Default to False.
-    - batch_mode: A boolean value specifying whether to use batch mode. Default to False.
-
-    Example:
-    ```
-    @udf(input_types=['INT', 'INT'], result_type='INT')
-    def gcd(x, y):
-        while y != 0:
-            (x, y) = (y, x % y)
-        return x
-    ```
-
-    I/O bound Example:
-    ```
-    @udf(input_types=['INT'], result_type='INT', io_threads=64)
-    def external_api(x):
-        response = requests.get(my_endpoint + '?param=' + x)
-        return response["data"]
-    ```
-
-    Batch mode example:
-    ```
-    @udf(input_types=['INT', 'INT'], result_type='INT', batch_mode=True)
-    def gcd(x, y):
-        return [x_i if y_i == 0 else gcd(y_i, x_i % y_i) for x_i, y_i in zip(x, y)]
-    ```
+    - input_types: describe each argument's type.
+    - result_type: single type or column list describing the result(s).
+    - name: optional function name exposed to Databend.
+    - stage_refs: optional list of parameter names treated as stage locations.
+    - io_threads: number of threads for IO bound scalar functions.
+    - skip_null: when True, NULL inputs bypass the function and yield NULL output.
+    - batch_mode: allow passing entire columns to the function rather than per-row calls.
     """
 
+    is_table = isinstance(result_type, (pa.Schema, pa.Field)) or (
+        isinstance(result_type, Sequence) and not isinstance(result_type, (str, bytes))
+    )
+
+    if is_table:
+
+        def decorator(f):
+            return TableFunction(
+                f,
+                input_types,
+                result_type,
+                name,
+                stage_refs=stage_refs,
+                io_threads=None,
+                skip_null=skip_null,
+                batch_mode=batch_mode,
+            )
+
+        return decorator
+
     if io_threads is not None and io_threads > 1:
-        return lambda f: ScalarFunction(
+
+        def decorator(f):
+            return ScalarFunction(
+                f,
+                input_types,
+                result_type,
+                name,
+                stage_refs=stage_refs,
+                io_threads=io_threads,
+                skip_null=skip_null,
+                batch_mode=batch_mode,
+            )
+
+        return decorator
+
+    def decorator(f):
+        return ScalarFunction(
             f,
             input_types,
             result_type,
             name,
             stage_refs=stage_refs,
-            io_threads=io_threads,
             skip_null=skip_null,
             batch_mode=batch_mode,
         )
-    else:
-        return lambda f: ScalarFunction(
-            f,
-            input_types,
-            result_type,
-            name,
-            stage_refs=stage_refs,
-            skip_null=skip_null,
-            batch_mode=batch_mode,
-        )
+
+    return decorator
 
 
 class UDFServer(FlightServerBase):
@@ -794,6 +1068,11 @@ class UDFServer(FlightServerBase):
         udf = self._functions[func_name]
         # return the concatenation of input and output schema
         full_schema = pa.schema(list(udf._input_schema) + list(udf._result_schema))
+        metadata = dict(full_schema.metadata.items()) if full_schema.metadata else {}
+        metadata[_SCHEMA_METADATA_INPUT_COUNT_KEY] = str(len(udf._input_schema)).encode(
+            "utf-8"
+        )
+        full_schema = full_schema.with_metadata(metadata)
         return FlightInfo(
             schema=full_schema,
             descriptor=descriptor,
@@ -860,7 +1139,14 @@ class UDFServer(FlightServerBase):
                 for field in udf._input_schema
             ]
         input_types = ", ".join(parameter_defs)
-        output_type = _arrow_field_to_string(udf._result_schema[0])
+        if getattr(udf, "_is_table_function", False):
+            column_defs = ", ".join(
+                f"{field.name} {_inner_field_to_string(field)}"
+                for field in udf._result_schema
+            )
+            output_type = f"({column_defs})"
+        else:
+            output_type = _arrow_field_to_string(udf._result_schema[0])
         sql = (
             f"CREATE FUNCTION {name} ({input_types}) "
             f"RETURNS {output_type} LANGUAGE python "

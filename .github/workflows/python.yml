@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'python/**'
-  push:
     tags:
       - 'v*'
   pull_request:

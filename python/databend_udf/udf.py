@@ -1408,10 +1408,10 @@ def _type_str_to_arrow_field_inner(type_str: str) -> pa.Field:
         # VECTOR(1024)
         dim = int(type_str[6:].strip("()").strip())
         # Use List(float) with metadata to represent VECTOR(N)
-        # This is a workaround because Databend UDF client might not support FixedSizeList yet.
+        # Use FixedSizeList with Extension metadata for VECTOR type
         return pa.field(
             "",
-            pa.list_(pa.field("item", pa.float32(), nullable=True)),
+            pa.list_(pa.field("item", pa.float32(), nullable=True), list_size=dim),
             nullable=False,
             metadata={
                 EXTENSION_KEY: ARROW_EXT_TYPE_VECTOR,

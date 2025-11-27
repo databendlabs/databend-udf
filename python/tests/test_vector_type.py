@@ -23,8 +23,9 @@ def test_vector_sql_generation():
 
 def test_vector_type_parsing():
     field = _type_str_to_arrow_field("VECTOR(1024)")
-    # Should be List type with metadata, not FixedSizeList
-    assert pa.types.is_list(field.type)
+    # Should be FixedSizeList type with metadata
+    assert pa.types.is_fixed_size_list(field.type)
+    assert field.type.list_size == 1024
     assert field.metadata[b"Extension"] == b"Vector"
     assert field.metadata[b"vector_size"] == b"1024"
     assert pa.types.is_float32(field.type.value_type)
@@ -37,10 +38,10 @@ def test_vector_type_parsing():
 
 
 def test_vector_type_formatting():
-    # Test that a List with VECTOR metadata is formatted as VECTOR(N)
+    # Test that a FixedSizeList with VECTOR metadata is formatted as VECTOR(N)
     field = pa.field(
         "",
-        pa.list_(pa.field("item", pa.float32(), nullable=True)),
+        pa.list_(pa.field("item", pa.float32(), nullable=True), list_size=1024),
         nullable=False,
         metadata={
             b"Extension": b"Vector",
@@ -52,10 +53,10 @@ def test_vector_type_formatting():
 
 
 def test_vector_input_processing():
-    # Input processing should handle List (which is what VECTOR is physically)
+    # Input processing should handle FixedSizeList
     field = pa.field(
         "",
-        pa.list_(pa.field("item", pa.float32(), nullable=True)),
+        pa.list_(pa.field("item", pa.float32(), nullable=True), list_size=3),
         nullable=False,
         metadata={
             b"Extension": b"Vector",
@@ -71,10 +72,10 @@ def test_vector_input_processing():
 
 
 def test_vector_output_processing():
-    # Output processing should handle List
+    # Output processing should handle FixedSizeList
     field = pa.field(
         "",
-        pa.list_(pa.field("item", pa.float32(), nullable=True)),
+        pa.list_(pa.field("item", pa.float32(), nullable=True), list_size=3),
         nullable=False,
         metadata={
             b"Extension": b"Vector",

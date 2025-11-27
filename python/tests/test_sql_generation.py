@@ -1,5 +1,5 @@
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 import pyarrow as pa
 from prometheus_client import REGISTRY
 from databend_udf import udf, StageLocation, UDFServer

@@ -49,8 +49,7 @@ MAX_DECIMAL128_PRECISION = 38
 MAX_DECIMAL256_PRECISION = 76
 EXTENSION_KEY = b"Extension"
 ARROW_EXT_TYPE_VARIANT = b"Variant"
-# Use a custom key to avoid triggering Arrow Extension Type mechanism in Databend
-VECTOR_METADATA_KEY = b"x-databend-vector"
+ARROW_EXT_TYPE_VECTOR = b"Vector"
 
 
 TIMESTAMP_UINT = "us"
@@ -1415,7 +1414,8 @@ def _type_str_to_arrow_field_inner(type_str: str) -> pa.Field:
             pa.list_(pa.field("item", pa.float32(), nullable=True)),
             nullable=False,
             metadata={
-                VECTOR_METADATA_KEY: str(dim).encode(),
+                EXTENSION_KEY: ARROW_EXT_TYPE_VECTOR,
+                b"vector_size": str(dim).encode(),
             },
         )
     else:
@@ -1441,8 +1441,8 @@ def _field_type_to_string(field: pa.Field) -> str:
     Convert a `pyarrow.DataType` to a SQL data type string.
     """
     t = field.type
-    if field.metadata and field.metadata.get(VECTOR_METADATA_KEY):
-        dim = int(field.metadata.get(VECTOR_METADATA_KEY))
+    if field.metadata and field.metadata.get(EXTENSION_KEY) == ARROW_EXT_TYPE_VECTOR:
+        dim = int(field.metadata.get(b"vector_size", b"0"))
         return f"VECTOR({dim})"
 
     if pa.types.is_boolean(t):

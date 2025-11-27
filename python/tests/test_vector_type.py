@@ -25,7 +25,8 @@ def test_vector_type_parsing():
     field = _type_str_to_arrow_field("VECTOR(1024)")
     # Should be List type with metadata, not FixedSizeList
     assert pa.types.is_list(field.type)
-    assert field.metadata[b"x-databend-vector"] == b"1024"
+    assert field.metadata[b"Extension"] == b"Vector"
+    assert field.metadata[b"vector_size"] == b"1024"
     assert pa.types.is_float32(field.type.value_type)
     # Default is nullable
     assert field.nullable is True
@@ -42,7 +43,8 @@ def test_vector_type_formatting():
         pa.list_(pa.field("item", pa.float32(), nullable=True)),
         nullable=False,
         metadata={
-            b"x-databend-vector": b"1024",
+            b"Extension": b"Vector",
+            b"vector_size": b"1024",
         },
     )
     type_str = _field_type_to_string(field)
@@ -56,7 +58,8 @@ def test_vector_input_processing():
         pa.list_(pa.field("item", pa.float32(), nullable=True)),
         nullable=False,
         metadata={
-            b"x-databend-vector": b"3",
+            b"Extension": b"Vector",
+            b"vector_size": b"3",
         },
     )
     func = _input_process_func(field)
@@ -74,7 +77,8 @@ def test_vector_output_processing():
         pa.list_(pa.field("item", pa.float32(), nullable=True)),
         nullable=False,
         metadata={
-            b"x-databend-vector": b"3",
+            b"Extension": b"Vector",
+            b"vector_size": b"3",
         },
     )
     func = _output_process_func(field)

@@ -1410,7 +1410,7 @@ def _type_str_to_arrow_field_inner(type_str: str) -> pa.Field:
         # This is a workaround because Databend UDF client might not support FixedSizeList yet.
         return pa.field(
             "",
-            pa.list_(pa.field("item", pa.float32(), nullable=False)),
+            pa.list_(pa.field("item", pa.float32(), nullable=True)),
             nullable=False,
             metadata={
                 EXTENSION_KEY: ARROW_EXT_TYPE_VECTOR,

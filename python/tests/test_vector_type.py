@@ -40,7 +40,7 @@ def test_vector_type_formatting():
     # Test that a List with VECTOR metadata is formatted as VECTOR(N)
     field = pa.field(
         "",
-        pa.list_(pa.field("item", pa.float32(), nullable=False)),
+        pa.list_(pa.field("item", pa.float32(), nullable=True)),
         nullable=False,
         metadata={
             b"Extension": b"Vector",
@@ -55,7 +55,7 @@ def test_vector_input_processing():
     # Input processing should handle List (which is what VECTOR is physically)
     field = pa.field(
         "",
-        pa.list_(pa.field("item", pa.float32(), nullable=False)),
+        pa.list_(pa.field("item", pa.float32(), nullable=True)),
         nullable=False,
         metadata={
             b"Extension": b"Vector",
@@ -74,7 +74,7 @@ def test_vector_output_processing():
     # Output processing should handle List
     field = pa.field(
         "",
-        pa.list_(pa.field("item", pa.float32(), nullable=False)),
+        pa.list_(pa.field("item", pa.float32(), nullable=True)),
         nullable=False,
         metadata={
             b"Extension": b"Vector",

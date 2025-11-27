@@ -1179,7 +1179,7 @@ def _input_process_func(field: pa.Field) -> Callable:
     - Json=pa.large_binary(): bytes -> Any
     - Map=pa.map_(): list[tuple(k,v)] -> dict
     """
-    if pa.types.is_list(field.type):
+    if pa.types.is_list(field.type) or pa.types.is_fixed_size_list(field.type):
         func = _input_process_func(field.type.value_field)
         return (
             lambda array: [func(v) if v is not None else None for v in array]
@@ -1225,7 +1225,7 @@ def _output_process_func(field: pa.Field) -> Callable:
     - Json=pa.large_binary(): Any -> str
     - Map=pa.map_(): dict -> list[tuple(k,v)]
     """
-    if pa.types.is_list(field.type):
+    if pa.types.is_list(field.type) or pa.types.is_fixed_size_list(field.type):
         func = _output_process_func(field.type.value_field)
         return (
             lambda array: [func(v) if v is not None else None for v in array]
@@ -1402,6 +1402,10 @@ def _type_str_to_arrow_field_inner(type_str: str) -> pa.Field:
             type_str = type_str.strip()
             fields.append(_type_str_to_arrow_field_inner(type_str))
         return pa.field("", pa.struct(fields), False)
+    elif type_str.startswith("VECTOR"):
+        # VECTOR(1024)
+        dim = int(type_str[6:].strip("()").strip())
+        return pa.field("", pa.list_(pa.float32(), dim), False)
     else:
         raise ValueError(f"Unsupported type: {type_str}")
 
@@ -1460,6 +1464,8 @@ def _field_type_to_string(field: pa.Field) -> str:
             return "VARIANT"
         else:
             return "BINARY"
+    elif pa.types.is_fixed_size_list(t):
+        return f"VECTOR({t.list_size})"
     elif pa.types.is_list(t):
         return f"ARRAY({_inner_field_to_string(t.value_field)})"
     elif pa.types.is_map(t):

@@ -1,6 +1,7 @@
 import logging
 from unittest.mock import MagicMock, patch
 import pyarrow as pa
+from prometheus_client import REGISTRY
 from databend_udf import udf, StageLocation, UDFServer
 
 @udf(input_types=["INT"], result_type="INT")
@@ -15,7 +16,6 @@ def stage_func(stage_loc: StageLocation, x: int) -> int:
 def table_func(x: int):
     yield pa.RecordBatch.from_arrays([pa.array([x])], names=["res"])
 
-from prometheus_client import REGISTRY
 
 def setup_function():
     for collector in list(REGISTRY._collector_to_names):

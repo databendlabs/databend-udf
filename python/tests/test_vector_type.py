@@ -31,7 +31,9 @@ def test_vector_type_parsing():
 
 def test_vector_type_formatting():
     field = pa.field(
-        "", pa.list_(pa.field("item", pa.float32(), nullable=False), 1024), nullable=True
+        "",
+        pa.list_(pa.field("item", pa.float32(), nullable=False), 1024),
+        nullable=True,
     )
     type_str = _field_type_to_string(field)
     assert type_str == "VECTOR(1024)"

@@ -1,5 +1,5 @@
 import pyarrow as pa
-import pytest
+
 from databend_udf.udf import (
     _type_str_to_arrow_field,
     _field_type_to_string,

@@ -1,4 +1,3 @@
-import logging
 from unittest.mock import patch
 import pyarrow as pa
 from prometheus_client import REGISTRY

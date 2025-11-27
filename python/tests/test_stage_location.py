@@ -150,7 +150,7 @@ def test_multiple_stage_entries():
 
 
 def test_missing_stage_mapping():
-    with pytest.raises(ValueError, match="Missing stage mapping"):
+    with pytest.raises(ValueError, match=r"Missing stage mapping(.|\n)*CREATE FUNCTION"):
         _collect(describe_stage, _make_batch([1]), Headers())
 
 

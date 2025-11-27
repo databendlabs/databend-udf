@@ -358,9 +358,14 @@ class Headers:
         mapping = self._stage_mapping()
         missing = [name for name in names if name not in mapping]
         if missing:
-            raise ValueError(
-                "Missing stage mapping for parameter(s): " + ", ".join(sorted(missing))
+            msg = (
+                "Missing stage mapping for parameter(s): "
+                + ", ".join(sorted(missing))
+                + ".\n"
+                "Please check your CREATE FUNCTION statement to ensure that the stage location is correctly specified.\n"
+                "For example: CREATE FUNCTION ... (stage_param STAGE_LOCATION) ...\n"
             )
+            raise ValueError(msg)
         return {name: mapping[name] for name in names}
 
 
@@ -493,7 +498,7 @@ class CallableFunction(UserDefinedFunction):
         for kind, identifier in self._call_arg_layout:
             if kind == "stage":
                 stage_ref_name = self._stage_param_to_ref.get(identifier, identifier)
-                self._sql_parameter_defs.append(f"STAGE_LOCATION {stage_ref_name}")
+                self._sql_parameter_defs.append(f"{stage_ref_name} STAGE_LOCATION")
             elif kind == "data":
                 field = data_field_map[identifier]
                 self._sql_parameter_defs.append(
@@ -1144,11 +1149,11 @@ class UDFServer(FlightServerBase):
                 f"{field.name} {_inner_field_to_string(field)}"
                 for field in udf._result_schema
             )
-            output_type = f"({column_defs})"
+            output_type = f"TABLE ({column_defs})"
         else:
             output_type = _arrow_field_to_string(udf._result_schema[0])
         sql = (
-            f"CREATE FUNCTION {name} ({input_types}) "
+            f"CREATE OR REPLACE FUNCTION {name} ({input_types}) "
             f"RETURNS {output_type} LANGUAGE python "
             f"HANDLER = '{name}' ADDRESS = 'http://{self._location}';"
         )
@@ -1412,7 +1417,7 @@ def _arrow_field_to_string(field: pa.Field) -> str:
 def _inner_field_to_string(field: pa.Field) -> str:
     # inner field default is NOT NULL in databend
     type_str = _field_type_to_string(field)
-    return f"{type_str} NULL" if field.nullable else type_str
+    return f"{type_str} NOT NULL" if not field.nullable else type_str
 
 
 def _field_type_to_string(field: pa.Field) -> str:

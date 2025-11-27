@@ -28,7 +28,7 @@ def test_scalar_sql(caplog):
     with caplog.at_level(logging.INFO):
         server = UDFServer("0.0.0.0:0")
         server.add_function(scalar_func)
-        
+
         assert "CREATE OR REPLACE FUNCTION scalar_func (x INT)" in caplog.text
         assert "RETURNS INT LANGUAGE python" in caplog.text
 
@@ -38,7 +38,10 @@ def test_stage_sql(caplog):
         server = UDFServer("0.0.0.0:0")
         server.add_function(stage_func)
 
-        assert "CREATE OR REPLACE FUNCTION stage_func (stage_loc STAGE_LOCATION, x INT)" in caplog.text
+        assert (
+            "CREATE OR REPLACE FUNCTION stage_func (stage_loc STAGE_LOCATION, x INT)"
+            in caplog.text
+        )
         assert "RETURNS INT LANGUAGE python" in caplog.text
 
 

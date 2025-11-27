@@ -30,13 +30,17 @@ def test_vector_type_parsing():
 
 
 def test_vector_type_formatting():
-    field = pa.field("", pa.list_(pa.float32(), 1024), nullable=True)
+    field = pa.field(
+        "", pa.list_(pa.field("item", pa.float32(), nullable=False), 1024), nullable=True
+    )
     type_str = _field_type_to_string(field)
     assert type_str == "VECTOR(1024)"
 
 
 def test_vector_input_processing():
-    field = pa.field("", pa.list_(pa.float32(), 3), nullable=True)
+    field = pa.field(
+        "", pa.list_(pa.field("item", pa.float32(), nullable=False), 3), nullable=True
+    )
     func = _input_process_func(field)
 
     # Input is a list of floats
@@ -49,7 +53,9 @@ def test_vector_input_processing():
 
 
 def test_vector_output_processing():
-    field = pa.field("", pa.list_(pa.float32(), 3), nullable=True)
+    field = pa.field(
+        "", pa.list_(pa.field("item", pa.float32(), nullable=False), 3), nullable=True
+    )
     func = _output_process_func(field)
 
     # Output is a list of floats

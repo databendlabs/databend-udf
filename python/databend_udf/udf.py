@@ -1405,7 +1405,9 @@ def _type_str_to_arrow_field_inner(type_str: str) -> pa.Field:
     elif type_str.startswith("VECTOR"):
         # VECTOR(1024)
         dim = int(type_str[6:].strip("()").strip())
-        return pa.field("", pa.list_(pa.float32(), dim), False)
+        return pa.field(
+            "", pa.list_(pa.field("item", pa.float32(), nullable=False), dim), False
+        )
     else:
         raise ValueError(f"Unsupported type: {type_str}")
 

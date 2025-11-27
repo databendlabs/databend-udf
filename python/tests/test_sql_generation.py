@@ -1,12 +1,8 @@
-from unittest.mock import patch
+import logging
 import pyarrow as pa
 from prometheus_client import REGISTRY
 from databend_udf import udf, StageLocation, UDFServer
 
-
-import sys
-import databend_udf.udf  # Ensure module is loaded
-udf_module = sys.modules["databend_udf.udf"]
 
 @udf(input_types=["INT"], result_type="INT")
 def scalar_func(x: int) -> int:
@@ -28,37 +24,28 @@ def setup_function():
         REGISTRY.unregister(collector)
 
 
-def test_scalar_sql():
-    with patch.object(udf_module, "logger") as mock_logger:
+def test_scalar_sql(caplog):
+    with caplog.at_level(logging.INFO):
         server = UDFServer("0.0.0.0:0")
         server.add_function(scalar_func)
-
-        args, _ = mock_logger.info.call_args
-        log_msg = args[0]
-        assert "CREATE OR REPLACE FUNCTION scalar_func (x INT)" in log_msg
-        assert "RETURNS INT LANGUAGE python" in log_msg
+        
+        assert "CREATE OR REPLACE FUNCTION scalar_func (x INT)" in caplog.text
+        assert "RETURNS INT LANGUAGE python" in caplog.text
 
 
-def test_stage_sql():
-    with patch.object(udf_module, "logger") as mock_logger:
+def test_stage_sql(caplog):
+    with caplog.at_level(logging.INFO):
         server = UDFServer("0.0.0.0:0")
         server.add_function(stage_func)
 
-        args, _ = mock_logger.info.call_args
-        log_msg = args[0]
-        assert (
-            "CREATE OR REPLACE FUNCTION stage_func (stage_loc STAGE_LOCATION, x INT)"
-            in log_msg
-        )
-        assert "RETURNS INT LANGUAGE python" in log_msg
+        assert "CREATE OR REPLACE FUNCTION stage_func (stage_loc STAGE_LOCATION, x INT)" in caplog.text
+        assert "RETURNS INT LANGUAGE python" in caplog.text
 
 
-def test_table_sql():
-    with patch.object(udf_module, "logger") as mock_logger:
+def test_table_sql(caplog):
+    with caplog.at_level(logging.INFO):
         server = UDFServer("0.0.0.0:0")
         server.add_function(table_func)
 
-        args, _ = mock_logger.info.call_args
-        log_msg = args[0]
-        assert "CREATE OR REPLACE FUNCTION table_func (x INT)" in log_msg
-        assert "RETURNS TABLE (col0 INT) LANGUAGE python" in log_msg
+        assert "CREATE OR REPLACE FUNCTION table_func (x INT)" in caplog.text
+        assert "RETURNS TABLE (col0 INT) LANGUAGE python" in caplog.text

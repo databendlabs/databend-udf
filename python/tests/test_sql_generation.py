@@ -3,13 +3,16 @@ import pyarrow as pa
 from prometheus_client import REGISTRY
 from databend_udf import udf, StageLocation, UDFServer
 
+
 @udf(input_types=["INT"], result_type="INT")
 def scalar_func(x: int) -> int:
     return x
 
+
 @udf(stage_refs=["stage_loc"], input_types=["INT"], result_type="INT")
 def stage_func(stage_loc: StageLocation, x: int) -> int:
     return x
+
 
 @udf(input_types=["INT"], result_type=["INT"], batch_mode=True)
 def table_func(x: int):
@@ -25,29 +28,33 @@ def test_scalar_sql():
     with patch("databend_udf.udf.logger") as mock_logger:
         server = UDFServer("0.0.0.0:0")
         server.add_function(scalar_func)
-        
+
         args, _ = mock_logger.info.call_args
         log_msg = args[0]
         assert "CREATE OR REPLACE FUNCTION scalar_func (x INT)" in log_msg
         assert "RETURNS INT LANGUAGE python" in log_msg
 
+
 def test_stage_sql():
     with patch("databend_udf.udf.logger") as mock_logger:
         server = UDFServer("0.0.0.0:0")
         server.add_function(stage_func)
-        
+
         args, _ = mock_logger.info.call_args
         log_msg = args[0]
-        assert "CREATE OR REPLACE FUNCTION stage_func (stage_loc STAGE_LOCATION, x INT)" in log_msg
+        assert (
+            "CREATE OR REPLACE FUNCTION stage_func (stage_loc STAGE_LOCATION, x INT)"
+            in log_msg
+        )
         assert "RETURNS INT LANGUAGE python" in log_msg
+
 
 def test_table_sql():
     with patch("databend_udf.udf.logger") as mock_logger:
         server = UDFServer("0.0.0.0:0")
         server.add_function(table_func)
-        
+
         args, _ = mock_logger.info.call_args
         log_msg = args[0]
         assert "CREATE OR REPLACE FUNCTION table_func (x INT)" in log_msg
         assert "RETURNS TABLE (col0 INT) LANGUAGE python" in log_msg
-

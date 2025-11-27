@@ -4,6 +4,10 @@ from prometheus_client import REGISTRY
 from databend_udf import udf, StageLocation, UDFServer
 
 
+import sys
+import databend_udf.udf  # Ensure module is loaded
+udf_module = sys.modules["databend_udf.udf"]
+
 @udf(input_types=["INT"], result_type="INT")
 def scalar_func(x: int) -> int:
     return x
@@ -25,7 +29,7 @@ def setup_function():
 
 
 def test_scalar_sql():
-    with patch("databend_udf.udf.logger") as mock_logger:
+    with patch.object(udf_module, "logger") as mock_logger:
         server = UDFServer("0.0.0.0:0")
         server.add_function(scalar_func)
 
@@ -36,7 +40,7 @@ def test_scalar_sql():
 
 
 def test_stage_sql():
-    with patch("databend_udf.udf.logger") as mock_logger:
+    with patch.object(udf_module, "logger") as mock_logger:
         server = UDFServer("0.0.0.0:0")
         server.add_function(stage_func)
 
@@ -50,7 +54,7 @@ def test_stage_sql():
 
 
 def test_table_sql():
-    with patch("databend_udf.udf.logger") as mock_logger:
+    with patch.object(udf_module, "logger") as mock_logger:
         server = UDFServer("0.0.0.0:0")
         server.add_function(table_func)
 

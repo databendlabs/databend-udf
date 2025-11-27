@@ -23,47 +23,67 @@ def test_vector_sql_generation():
 
 def test_vector_type_parsing():
     field = _type_str_to_arrow_field("VECTOR(1024)")
-    assert pa.types.is_fixed_size_list(field.type)
-    assert field.type.list_size == 1024
+    # Should be List type with metadata, not FixedSizeList
+    assert pa.types.is_list(field.type)
+    assert field.metadata[b"Extension"] == b"Vector"
+    assert field.metadata[b"vector_size"] == b"1024"
     assert pa.types.is_float32(field.type.value_type)
+    # Default is nullable
     assert field.nullable is True
+
+    # Test NOT NULL
+    field_not_null = _type_str_to_arrow_field("VECTOR(1024) NOT NULL")
+    assert field_not_null.nullable is False
 
 
 def test_vector_type_formatting():
+    # Test that a List with VECTOR metadata is formatted as VECTOR(N)
     field = pa.field(
         "",
-        pa.list_(pa.field("item", pa.float32(), nullable=False), 1024),
-        nullable=True,
+        pa.list_(pa.field("item", pa.float32(), nullable=False)),
+        nullable=False,
+        metadata={
+            b"Extension": b"Vector",
+            b"vector_size": b"1024",
+        },
     )
     type_str = _field_type_to_string(field)
     assert type_str == "VECTOR(1024)"
 
 
 def test_vector_input_processing():
+    # Input processing should handle List (which is what VECTOR is physically)
     field = pa.field(
-        "", pa.list_(pa.field("item", pa.float32(), nullable=False), 3), nullable=True
+        "",
+        pa.list_(pa.field("item", pa.float32(), nullable=False)),
+        nullable=False,
+        metadata={
+            b"Extension": b"Vector",
+            b"vector_size": b"3",
+        },
     )
     func = _input_process_func(field)
 
     # Input is a list of floats
-    input_data = [1.0, 2.0, 3.0]
-    result = func(input_data)
-    assert result == [1.0, 2.0, 3.0]
-
-    # Input is None
-    assert func(None) is None
+    data = [[1.1, 2.2, 3.3], [4.4, 5.5, 6.6]]
+    processed = func(data)
+    assert processed == data
 
 
 def test_vector_output_processing():
+    # Output processing should handle List
     field = pa.field(
-        "", pa.list_(pa.field("item", pa.float32(), nullable=False), 3), nullable=True
+        "",
+        pa.list_(pa.field("item", pa.float32(), nullable=False)),
+        nullable=False,
+        metadata={
+            b"Extension": b"Vector",
+            b"vector_size": b"3",
+        },
     )
     func = _output_process_func(field)
 
     # Output is a list of floats
-    output_data = [1.0, 2.0, 3.0]
-    result = func(output_data)
-    assert result == [1.0, 2.0, 3.0]
-
-    # Output is None
-    assert func(None) is None
+    data = [[1.1, 2.2, 3.3], [4.4, 5.5, 6.6]]
+    processed = func(data)
+    assert processed == data

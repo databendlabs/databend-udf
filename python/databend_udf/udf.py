@@ -49,6 +49,7 @@ MAX_DECIMAL128_PRECISION = 38
 MAX_DECIMAL256_PRECISION = 76
 EXTENSION_KEY = b"Extension"
 ARROW_EXT_TYPE_VARIANT = b"Variant"
+ARROW_EXT_TYPE_VECTOR = b"Vector"
 
 TIMESTAMP_UINT = "us"
 _SCHEMA_METADATA_INPUT_COUNT_KEY = b"x-databend-udf-input-count"
@@ -1405,8 +1406,16 @@ def _type_str_to_arrow_field_inner(type_str: str) -> pa.Field:
     elif type_str.startswith("VECTOR"):
         # VECTOR(1024)
         dim = int(type_str[6:].strip("()").strip())
+        # Use List(float) with metadata to represent VECTOR(N)
+        # This is a workaround because Databend UDF client might not support FixedSizeList yet.
         return pa.field(
-            "", pa.list_(pa.field("item", pa.float32(), nullable=False), dim), False
+            "",
+            pa.list_(pa.field("item", pa.float32(), nullable=False)),
+            nullable=False,
+            metadata={
+                EXTENSION_KEY: ARROW_EXT_TYPE_VECTOR,
+                b"vector_size": str(dim).encode(),
+            },
         )
     else:
         raise ValueError(f"Unsupported type: {type_str}")
@@ -1431,6 +1440,10 @@ def _field_type_to_string(field: pa.Field) -> str:
     Convert a `pyarrow.DataType` to a SQL data type string.
     """
     t = field.type
+    if field.metadata and field.metadata.get(EXTENSION_KEY) == ARROW_EXT_TYPE_VECTOR:
+        dim = int(field.metadata.get(b"vector_size", b"0"))
+        return f"VECTOR({dim})"
+
     if pa.types.is_boolean(t):
         return "BOOLEAN"
     elif pa.types.is_int8(t):
@@ -1466,8 +1479,6 @@ def _field_type_to_string(field: pa.Field) -> str:
             return "VARIANT"
         else:
             return "BINARY"
-    elif pa.types.is_fixed_size_list(t):
-        return f"VECTOR({t.list_size})"
     elif pa.types.is_list(t):
         return f"ARRAY({_inner_field_to_string(t.value_field)})"
     elif pa.types.is_map(t):

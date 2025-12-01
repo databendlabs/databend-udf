@@ -1,172 +1,198 @@
-### Usage
+# Databend Python UDF
 
-#### 1. Define your functions in a Python file
+Write user-defined functions in Python for Databend.
+
+## Quick Start
+
 ```python
-from databend_udf import *
+from databend_udf import udf, UDFServer
 
-# Define a function
-@udf(input_types=["VARCHAR", "VARCHAR", "VARCHAR"], result_type="VARCHAR")
-def split_and_join(s: str, split_s: str, join_s: str) -> str:
-    return join_s.join(s.split(split_s))
+@udf(input_types=["INT", "INT"], result_type="INT")
+def add(a: int, b: int) -> int:
+    return a + b
 
-# Define a function that accepts nullable values, and set skip_null to True to enable it returns NULL if any argument is NULL.
-@udf(
-    input_types=["INT", "INT"],
-    result_type="INT",
-    skip_null=True,
-)
-def gcd(x: int, y: int) -> int:
-    while y != 0:
-        (x, y) = (y, x % y)
-    return x
+if __name__ == '__main__':
+    server = UDFServer("0.0.0.0:8815")
+    server.add_function(add)
+    server.serve()
+```
 
-# Define a function that accepts nullable values, and set skip_null to False to enable it handles NULL values inside the function.
-@udf(
-    input_types=["ARRAY(INT64 NULL)", "INT64"],
-    result_type="INT NOT NULL",
-    skip_null=False,
-)
-def array_index_of(array: List[int], item: int):
-    if array is None:
-        return 0
+```bash
+python3 my_udf.py
+```
 
-    try:
-        return array.index(item) + 1
-    except ValueError:
-        return 0
+```sql
+CREATE FUNCTION add (INT, INT) RETURNS INT
+LANGUAGE python HANDLER = 'add' ADDRESS = 'http://0.0.0.0:8815';
 
-# Define a function which is IO bound, and set io_threads to enable it can be executed concurrently.
-@udf(input_types=["INT"], result_type="INT", io_threads=32)
-def wait_concurrent(x):
-    # assume an IO operation cost 2s
-    time.sleep(2)
-    return x
+SELECT add(1, 2);  -- 3
+```
 
-# Define a table-valued function that emits multiple columns per row.
+## Data Types
+
+| SQL Type     | Python Type       | Example                    |
+| ------------ | ----------------- | -------------------------- |
+| BOOLEAN      | bool              | `True`                     |
+| TINYINT      | int               | `127`                      |
+| SMALLINT     | int               | `32767`                    |
+| INT          | int               | `42`                       |
+| BIGINT       | int               | `1000000`                  |
+| UINT8        | int               | `255`                      |
+| UINT16       | int               | `65535`                    |
+| UINT32       | int               | `1000000`                  |
+| UINT64       | int               | `1000000`                  |
+| FLOAT        | float             | `3.14`                     |
+| DOUBLE       | float             | `3.14159`                  |
+| DECIMAL(P,S) | decimal.Decimal   | `Decimal("99.99")`         |
+| DATE         | datetime.date     | `date(2024, 1, 15)`        |
+| TIMESTAMP    | datetime.datetime | `datetime(2024, 1, 15, 10, 30)` |
+| VARCHAR      | str               | `"hello"`                  |
+| BINARY       | bytes             | `b"data"`                  |
+| VARIANT      | any               | `{"key": "value"}`         |
+| ARRAY(T)     | list[T]           | `[1, 2, 3]`                |
+| MAP(K,V)     | dict[K,V]         | `{"a": 1, "b": 2}`         |
+| TUPLE(T...)  | tuple(T...)       | `(1, "hello", True)`       |
+| VECTOR(N)    | list[float]       | `[0.1, 0.2, 0.3]`          |
+
+**Note:** SQL `NULL` maps to Python `None`.
+
+## Examples
+
+### Basic Types
+
+```python
+from databend_udf import udf
+import datetime
+from decimal import Decimal
+
+@udf(input_types=["INT"], result_type="INT")
+def double(x: int) -> int:
+    return x * 2
+
+@udf(input_types=["VARCHAR"], result_type="VARCHAR")
+def upper(s: str) -> str:
+    return s.upper()
+
+@udf(input_types=["DATE", "INT"], result_type="DATE")
+def add_days(d: datetime.date, days: int) -> datetime.date:
+    return d + datetime.timedelta(days=days)
+
+@udf(input_types=["DECIMAL(10,2)"], result_type="DECIMAL(10,2)")
+def add_tax(price: Decimal) -> Decimal:
+    return price * Decimal("1.1")
+```
+
+### Complex Types
+
+```python
+from typing import List, Dict, Tuple
+
+@udf(input_types=["ARRAY(INT)"], result_type="INT")
+def array_sum(arr: List[int]) -> int:
+    return sum(arr)
+
+@udf(input_types=["MAP(VARCHAR, INT)"], result_type="INT")
+def map_sum(m: Dict[str, int]) -> int:
+    return sum(m.values())
+
+@udf(input_types=["TUPLE(INT, VARCHAR)"], result_type="VARCHAR")
+def tuple_format(t: Tuple[int, str]) -> str:
+    return f"{t[0]}: {t[1]}"
+
+@udf(input_types=["VECTOR(128)"], result_type="VECTOR(128)")
+def normalize_vector(v: List[float]) -> List[float]:
+    norm = sum(x * x for x in v) ** 0.5
+    return [x / norm for x in v] if norm > 0 else v
+```
+
+### NULL Handling
+
+```python
+from typing import Optional
+
+# Option 1: skip_null=True - NULL input returns NULL
+@udf(input_types=["INT"], result_type="INT", skip_null=True)
+def double(x: int) -> int:
+    return x * 2
+
+# Option 2: skip_null=False - Handle NULL manually
+@udf(input_types=["INT"], result_type="INT", skip_null=False)
+def double_or_zero(x: Optional[int]) -> int:
+    return x * 2 if x is not None else 0
+
+# Nullable array elements
+@udf(input_types=["ARRAY(INT NULL)"], result_type="INT", skip_null=False)
+def sum_non_null(arr: List[Optional[int]]) -> int:
+    return sum(x for x in arr if x is not None)
+```
+
+### Table Functions
+
+```python
 @udf(
     input_types=["INT", "INT"],
     result_type=[("left", "INT"), ("right", "INT"), ("sum", "INT")],
     batch_mode=True,
 )
 def expand_pairs(left: List[int], right: List[int]):
-    if len(left) != len(right):
-        raise ValueError("Inputs must have the same length")
     return [
-        {"left": l, "right": r, "sum": l + r} for l, r in zip(left, right)
+        {"left": l, "right": r, "sum": l + r}
+        for l, r in zip(left, right)
     ]
-
-if __name__ == '__main__':
-    # create a UDF server listening at '0.0.0.0:8815'
-    server = UDFServer("0.0.0.0:8815")
-    # add defined functions
-    server.add_function(split_and_join)
-    server.add_function(gcd)
-    server.add_function(array_index_of)
-    server.add_function(wait_concurrent)
-    # start the UDF server
-    server.serve()
 ```
 
-`@udf` is an annotation for creating a UDF. It supports following parameters:
-
-- input_types: A list of strings or Arrow data types that specifies the input data types.
-- result_type: A string or an Arrow data type that specifies the return value type.
-- name: An optional string specifying the function name. If not provided, the original name will be used.
-- io_threads: Number of I/O threads used per data chunk for I/O bound functions.
-- skip_null: A boolean value specifying whether to skip NULL value. If it is set to True, NULL values will not be passed to the function, and the corresponding return value is set to NULL. Default to False.
-
-#### 2. Start the UDF Server
-Then we can Start the UDF Server by running:
-```sh
-python3 udf_server.py
-```
-
-#### 3. Update Databend query node config
-Now, udf server is disabled by default in databend. You can enable it by setting 'enable_udf_server = true' in query node config.
-
-In addition, for security reasons, only the address specified in the config can be accessed by databend. The list of allowed udf server addresses are specified through the `udf_server_allowlist` variable in the query node config.
-
-Here is an example config:
-```
-[query]
-...
-enable_udf_server = true
-udf_server_allow_list = [ "http://0.0.0.0:8815", "http://example.com" ]
-```
-
-#### 4. Add the functions to Databend
-We can use the `CREATE FUNCTION` command to add the functions you defined to Databend:
-```
-CREATE FUNCTION [IF NOT EXISTS] <udf_name> (<arg_type>, ...) RETURNS <return_type> LANGUAGE <language> HANDLER=<handler> ADDRESS=<udf_server_address>
-```
-The `udf_name` is the name of UDF you declared in Databend. The `handler` is the function name you defined in the python UDF server.
-
-For example:
 ```sql
-CREATE FUNCTION split_and_join (VARCHAR, VARCHAR, VARCHAR) RETURNS VARCHAR LANGUAGE python HANDLER = 'split_and_join' ADDRESS = 'http://0.0.0.0:8815';
+SELECT * FROM expand_pairs([1, 2, 3], [10, 20, 30]);
 ```
 
-NOTE: The udf_server_address you specify must appear in `udf_server_allow_list` explained in the previous step.
+### I/O Bound Functions
 
-> In step 2, when you starting the UDF server, the corresponding sql statement of each function will be printed out. You can use them directly.
+```python
+import time
 
-#### 5. Use the functions in Databend
-```
-mysql> select split_and_join('3,5,7', ',', ':');
-+-----------------------------------+
-| split_and_join('3,5,7', ',', ':') |
-+-----------------------------------+
-| 3:5:7                             |
-+-----------------------------------+
+@udf(input_types=["INT"], result_type="INT", io_threads=32)
+def fetch_data(id: int) -> int:
+    time.sleep(0.1)
+    return id * 2
 ```
 
+## Configuration
 
-### Data Types
-The data types supported by the Python UDF API and their corresponding python types are as follows :
+### Databend Config
 
-| SQL Type            | Python Type       |
-| ------------------- | ----------------- |
-| BOOLEAN             | bool              |
-| TINYINT (UNSIGNED)  | int               |
-| SMALLINT (UNSIGNED) | int               |
-| INT (UNSIGNED)      | int               |
-| BIGINT (UNSIGNED)   | int               |
-| FLOAT               | float             |
-| DOUBLE              | float             |
-| DECIMAL             | decimal.Decimal   |
-| DATE                | datetime.date     |
-| TIMESTAMP           | datetime.datetime |
-| VARCHAR             | str               |
-| BINARY              | bytes             |
-| VARIANT             | any               |
-| MAP(K,V)            | dict              |
-| ARRAY(T)            | list[T]           |
-| TUPLE(T...)         | tuple(T...)       |
-| VECTOR(N)           | list[float]       |
+Edit `databend-query.toml`:
 
-The NULL in sql is represented by None in Python.
-
-
-## Databend UDF Server Tests
-
-```sh
-# start UDF server
-python3 examples/server.py
+```toml
+[query]
+enable_udf_server = true
+udf_server_allow_list = ["http://0.0.0.0:8815"]
 ```
 
-```sh
-./target/debug/databend-sqllogictests --run_dir udf_server
-```
+### UDF Decorator Parameters
 
+| Parameter     | Type               | Default | Description                              |
+| ------------- | ------------------ | ------- | ---------------------------------------- |
+| `input_types` | `List[str]`        | -       | Input SQL types                          |
+| `result_type` | `str \| List[Tuple]` | -     | Return SQL type or table schema          |
+| `name`        | `str`              | None    | Custom function name                     |
+| `skip_null`   | `bool`             | False   | Auto-return NULL for NULL inputs         |
+| `io_threads`  | `int`              | None    | I/O thread pool size                     |
+| `batch_mode`  | `bool`             | False   | Enable for table functions               |
 
-### Acknowledgement
-Databend Python UDF Server API is inspired by [RisingWave Python API](https://pypi.org/project/risingwave/).
+## Additional Resources
 
-### Code Formatting
+- [Comprehensive Examples](tests/servers/comprehensive_server.py) - All data types
+- [Test Cases](tests/test_comprehensive_example.py) - Usage examples
 
-Use Ruff to keep the Python sources consistent:
+## Development
+
+Format code with Ruff:
 
 ```bash
-python -m pip install ruff  # once
-python -m ruff format python/databend_udf python/tests
+pip install ruff
+ruff format python/databend_udf python/tests
 ```
+
+---
+
+Inspired by [RisingWave Python API](https://pypi.org/project/risingwave/).

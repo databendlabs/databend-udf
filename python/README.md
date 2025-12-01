@@ -142,6 +142,7 @@ The data types supported by the Python UDF API and their corresponding python ty
 | MAP(K,V)            | dict              |
 | ARRAY(T)            | list[T]           |
 | TUPLE(T...)         | tuple(T...)       |
+| VECTOR(N)           | list[float]       |
 
 The NULL in sql is represented by None in Python.
 

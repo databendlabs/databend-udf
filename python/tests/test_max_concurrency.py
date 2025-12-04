@@ -3,10 +3,8 @@ Tests for max_concurrency feature.
 Validates that UDF functions can limit concurrent requests.
 """
 
-import pytest
 import time
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def test_concurrency_limit_exceeded(concurrency_server):

@@ -170,3 +170,18 @@ def full_server():
 
     yield manager
     manager.stop()
+
+
+@pytest.fixture
+def concurrency_server():
+    """Server with concurrency-limited functions for testing max_concurrency."""
+    script_path = os.path.join(
+        os.path.dirname(__file__), "servers", "concurrency_server.py"
+    )
+    manager = ServerManager(script_path)
+
+    if not manager.start():
+        pytest.fail("Failed to start concurrency server")
+
+    yield manager
+    manager.stop()

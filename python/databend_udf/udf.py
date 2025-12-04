@@ -18,6 +18,7 @@ import inspect
 import time
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
+from threading import Semaphore
 from typing import (
     Iterator,
     Callable,
@@ -583,6 +584,12 @@ class CallableFunction(UserDefinedFunction):
         return self._func(*args)
 
 
+class ConcurrencyLimitExceeded(Exception):
+    """Exception raised when max_concurrency limit is exceeded."""
+
+    pass
+
+
 class ScalarFunction(CallableFunction):
     """User-defined scalar function implementation."""
 
@@ -590,6 +597,9 @@ class ScalarFunction(CallableFunction):
     _executor: Optional[ThreadPoolExecutor]
     _skip_null: bool
     _batch_mode: bool
+    _max_concurrency: Optional[int]
+    _concurrency_timeout: Optional[float]
+    _semaphore: Optional[Semaphore]
 
     def __init__(
         self,
@@ -601,6 +611,8 @@ class ScalarFunction(CallableFunction):
         io_threads=None,
         skip_null=None,
         batch_mode=False,
+        max_concurrency=None,
+        concurrency_timeout=None,
     ):
         result_fields, is_table = _normalize_result_type(result_type)
         if is_table:
@@ -615,6 +627,13 @@ class ScalarFunction(CallableFunction):
             else None
         )
 
+        # Concurrency limiting
+        self._max_concurrency = max_concurrency
+        self._concurrency_timeout = concurrency_timeout
+        self._semaphore = (
+            Semaphore(max_concurrency) if max_concurrency is not None else None
+        )
+
         if skip_null and not self._result_schema.field(0).nullable:
             raise ValueError(
                 f"Return type of function {self._name} must be nullable when skip_null is True"
@@ -626,52 +645,73 @@ class ScalarFunction(CallableFunction):
     def eval_batch(
         self, batch: pa.RecordBatch, headers: Optional[Headers] = None
     ) -> Iterator[pa.RecordBatch]:
-        headers_obj = self._ensure_headers(headers)
-        stage_locations = self._resolve_stage_locations(headers_obj)
-        processed_inputs = self._convert_inputs(batch)
-
-        if self._batch_mode:
-            call_args = self._assemble_args(
-                processed_inputs, stage_locations, headers_obj, row_idx=None
+        # Try to acquire semaphore if concurrency limiting is enabled
+        if self._semaphore is not None:
+            acquired = self._semaphore.acquire(
+                blocking=True, timeout=self._concurrency_timeout
             )
-            column = self._func(*call_args)
-        elif self._executor is not None:
-            row_count = batch.num_rows
-            column = [None] * row_count
-            futures = []
-            future_rows: List[int] = []
-            for row in range(row_count):
-                if self._skip_null and self._row_has_null(processed_inputs, row):
-                    column[row] = None
-                    continue
-                call_args = self._assemble_args(
-                    processed_inputs, stage_locations, headers_obj, row
+            if not acquired:
+                raise ConcurrencyLimitExceeded(
+                    f"Function '{self._name}' has reached max concurrency limit of {self._max_concurrency}, "
+                    f"timed out after {self._concurrency_timeout}s"
                 )
-                futures.append(self._executor.submit(self._func, *call_args))
-                future_rows.append(row)
-            for row, future in zip(future_rows, futures):
-                column[row] = future.result()
-        else:
-            column = []
-            for row in range(batch.num_rows):
-                if self._skip_null and self._row_has_null(processed_inputs, row):
-                    column.append(None)
-                    continue
+
+        try:
+            headers_obj = self._ensure_headers(headers)
+            stage_locations = self._resolve_stage_locations(headers_obj)
+            processed_inputs = self._convert_inputs(batch)
+
+            if self._batch_mode:
                 call_args = self._assemble_args(
-                    processed_inputs, stage_locations, headers_obj, row
+                    processed_inputs, stage_locations, headers_obj, row_idx=None
                 )
-                column.append(self._func(*call_args))
+                column = self._func(*call_args)
+            elif self._executor is not None:
+                row_count = batch.num_rows
+                column = [None] * row_count
+                futures = []
+                future_rows: List[int] = []
+                for row in range(row_count):
+                    if self._skip_null and self._row_has_null(processed_inputs, row):
+                        column[row] = None
+                        continue
+                    call_args = self._assemble_args(
+                        processed_inputs, stage_locations, headers_obj, row
+                    )
+                    futures.append(self._executor.submit(self._func, *call_args))
+                    future_rows.append(row)
+                for row, future in zip(future_rows, futures):
+                    column[row] = future.result()
+            else:
+                column = []
+                for row in range(batch.num_rows):
+                    if self._skip_null and self._row_has_null(processed_inputs, row):
+                        column.append(None)
+                        continue
+                    call_args = self._assemble_args(
+                        processed_inputs, stage_locations, headers_obj, row
+                    )
+                    column.append(self._func(*call_args))
 
-        column = _output_process_func(_list_field(self._result_schema.field(0)))(column)
+            column = _output_process_func(_list_field(self._result_schema.field(0)))(
+                column
+            )
 
-        array = pa.array(column, type=self._result_schema.types[0])
-        yield pa.RecordBatch.from_arrays([array], schema=self._result_schema)
+            array = pa.array(column, type=self._result_schema.types[0])
+            yield pa.RecordBatch.from_arrays([array], schema=self._result_schema)
+        finally:
+            # Release semaphore if we acquired it
+            if self._semaphore is not None:
+                self._semaphore.release()
 
 
 class TableFunction(CallableFunction):
     """Table-valued function that returns zero or more rows."""
 
     _batch_mode: bool
+    _max_concurrency: Optional[int]
+    _concurrency_timeout: Optional[float]
+    _semaphore: Optional[Semaphore]
 
     def __init__(
         self,
@@ -683,6 +723,8 @@ class TableFunction(CallableFunction):
         io_threads=None,
         skip_null=None,
         batch_mode=False,
+        max_concurrency=None,
+        concurrency_timeout=None,
     ):
         if io_threads not in (None, 0, 1):
             raise ValueError("Table functions do not support io_threads > 1")
@@ -699,24 +741,47 @@ class TableFunction(CallableFunction):
         self._batch_mode = bool(batch_mode)
         self._is_table_function = True
 
+        # Concurrency limiting
+        self._max_concurrency = max_concurrency
+        self._concurrency_timeout = concurrency_timeout
+        self._semaphore = (
+            Semaphore(max_concurrency) if max_concurrency is not None else None
+        )
+
     def eval_batch(
         self, batch: pa.RecordBatch, headers: Optional[Headers] = None
     ) -> Iterator[pa.RecordBatch]:
-        headers_obj = self._ensure_headers(headers)
-        stage_locations = self._resolve_stage_locations(headers_obj)
-        processed_inputs = self._convert_inputs(batch)
-
-        if self._batch_mode:
-            call_args = self._assemble_args(
-                processed_inputs, stage_locations, headers_obj, row_idx=None
+        # Try to acquire semaphore if concurrency limiting is enabled
+        if self._semaphore is not None:
+            acquired = self._semaphore.acquire(
+                blocking=True, timeout=self._concurrency_timeout
             )
-            yield from self._iter_output_batches(self._func(*call_args))
-        else:
-            for row in range(batch.num_rows):
+            if not acquired:
+                raise ConcurrencyLimitExceeded(
+                    f"Function '{self._name}' has reached max concurrency limit of {self._max_concurrency}, "
+                    f"timed out after {self._concurrency_timeout}s"
+                )
+
+        try:
+            headers_obj = self._ensure_headers(headers)
+            stage_locations = self._resolve_stage_locations(headers_obj)
+            processed_inputs = self._convert_inputs(batch)
+
+            if self._batch_mode:
                 call_args = self._assemble_args(
-                    processed_inputs, stage_locations, headers_obj, row
+                    processed_inputs, stage_locations, headers_obj, row_idx=None
                 )
                 yield from self._iter_output_batches(self._func(*call_args))
+            else:
+                for row in range(batch.num_rows):
+                    call_args = self._assemble_args(
+                        processed_inputs, stage_locations, headers_obj, row
+                    )
+                    yield from self._iter_output_batches(self._func(*call_args))
+        finally:
+            # Release semaphore if we acquired it
+            if self._semaphore is not None:
+                self._semaphore.release()
 
     def _iter_output_batches(self, result: Any) -> Iterator[pa.RecordBatch]:
         if result is None:
@@ -911,6 +976,8 @@ def udf(
     io_threads: Optional[int] = 32,
     skip_null: Optional[bool] = False,
     batch_mode: Optional[bool] = False,
+    max_concurrency: Optional[int] = None,
+    concurrency_timeout: Optional[float] = None,
 ) -> Callable:
     """Annotation for defining scalar or table-valued UDFs.
 
@@ -922,6 +989,10 @@ def udf(
     - io_threads: number of threads for IO bound scalar functions.
     - skip_null: when True, NULL inputs bypass the function and yield NULL output.
     - batch_mode: allow passing entire columns to the function rather than per-row calls.
+    - max_concurrency: maximum number of concurrent requests allowed for this function.
+      When the limit is reached, new requests will wait until a slot becomes available.
+    - concurrency_timeout: maximum seconds to wait when max_concurrency limit is reached.
+      If None, wait indefinitely. If timeout expires, raises ConcurrencyLimitExceeded.
     """
 
     is_table = isinstance(result_type, (pa.Schema, pa.Field)) or (
@@ -940,6 +1011,8 @@ def udf(
                 io_threads=None,
                 skip_null=skip_null,
                 batch_mode=batch_mode,
+                max_concurrency=max_concurrency,
+                concurrency_timeout=concurrency_timeout,
             )
 
         return decorator
@@ -956,6 +1029,8 @@ def udf(
                 io_threads=io_threads,
                 skip_null=skip_null,
                 batch_mode=batch_mode,
+                max_concurrency=max_concurrency,
+                concurrency_timeout=concurrency_timeout,
             )
 
         return decorator
@@ -969,6 +1044,8 @@ def udf(
             stage_refs=stage_refs,
             skip_null=skip_null,
             batch_mode=batch_mode,
+            max_concurrency=max_concurrency,
+            concurrency_timeout=concurrency_timeout,
         )
 
     return decorator
@@ -1044,6 +1121,12 @@ class UDFServer(FlightServerBase):
             "udf_server_errors_count",
             "Total number of UDF processing errors",
             ["function_name", "error_type"],
+        )
+
+        self.rejected_requests = Counter(
+            "udf_server_rejected_requests_count",
+            "Total number of requests rejected due to concurrency limit",
+            ["function_name"],
         )
 
         self.add_function(builtin_echo)
@@ -1123,6 +1206,13 @@ class UDFServer(FlightServerBase):
                             batch_rows
                         )
 
+        except ConcurrencyLimitExceeded as e:
+            self.rejected_requests.labels(function_name=func_name).inc()
+            self.error_count.labels(
+                function_name=func_name, error_type="ConcurrencyLimitExceeded"
+            ).inc()
+            logger.warning(f"Request rejected due to concurrency limit: {e}")
+            raise e
         except Exception as e:
             self.error_count.labels(
                 function_name=func_name, error_type=e.__class__.__name__

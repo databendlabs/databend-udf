@@ -147,13 +147,61 @@ SELECT * FROM expand_pairs([1, 2, 3], [10, 20, 30]);
 
 ### I/O Bound Functions
 
+For I/O-bound functions (e.g., network requests, file operations), use `io_threads` to enable parallel processing of rows within a batch:
+
 ```python
 import time
 
 @udf(input_types=["INT"], result_type="INT", io_threads=32)
 def fetch_data(id: int) -> int:
-    time.sleep(0.1)
+    time.sleep(0.1)  # Simulates I/O operation
     return id * 2
+```
+
+**Note:** `io_threads` controls parallelism within a single batch, not across requests.
+
+### Concurrency Limiting
+
+To protect your UDF server from being overwhelmed, use `max_concurrency` to limit the number of concurrent requests per function:
+
+```python
+from databend_udf import udf, UDFServer
+
+@udf(input_types=["INT"], result_type="INT", max_concurrency=10)
+def expensive_operation(x: int) -> int:
+    # Only 10 concurrent requests allowed
+    # Additional requests will wait for a slot
+    return x * 2
+```
+
+By default, when the limit is reached, new requests **wait** until a slot becomes available. You can set a timeout to reject requests that wait too long:
+
+```python
+@udf(
+    input_types=["INT"],
+    result_type="INT",
+    max_concurrency=10,
+    concurrency_timeout=30,  # Wait up to 30 seconds, then reject
+)
+def expensive_operation(x: int) -> int:
+    return x * 2
+```
+
+When the timeout expires, a `ConcurrencyLimitExceeded` error is raised.
+
+You can combine `io_threads` and `max_concurrency`:
+
+```python
+@udf(
+    input_types=["INT"],
+    result_type="INT",
+    io_threads=32,           # 32 threads for I/O within each request
+    max_concurrency=5,       # But only 5 concurrent requests allowed
+    concurrency_timeout=60,  # Wait up to 60s for a slot
+)
+def api_call(id: int) -> int:
+    # Protected from too many concurrent requests
+    return fetch_from_api(id)
 ```
 
 ## Configuration
@@ -170,14 +218,16 @@ udf_server_allow_list = ["http://0.0.0.0:8815"]
 
 ### UDF Decorator Parameters
 
-| Parameter     | Type               | Default | Description                              |
-| ------------- | ------------------ | ------- | ---------------------------------------- |
-| `input_types` | `List[str]`        | -       | Input SQL types                          |
-| `result_type` | `str \| List[Tuple]` | -     | Return SQL type or table schema          |
-| `name`        | `str`              | None    | Custom function name                     |
-| `skip_null`   | `bool`             | False   | Auto-return NULL for NULL inputs         |
-| `io_threads`  | `int`              | None    | I/O thread pool size                     |
-| `batch_mode`  | `bool`             | False   | Enable for table functions               |
+| Parameter             | Type               | Default | Description                                          |
+| --------------------- | ------------------ | ------- | ---------------------------------------------------- |
+| `input_types`         | `List[str]`        | -       | Input SQL types                                      |
+| `result_type`         | `str \| List[Tuple]` | -     | Return SQL type or table schema                      |
+| `name`                | `str`              | None    | Custom function name                                 |
+| `skip_null`           | `bool`             | False   | Auto-return NULL for NULL inputs                     |
+| `io_threads`          | `int`              | 32      | Thread pool size for parallel row processing         |
+| `batch_mode`          | `bool`             | False   | Enable for table functions                           |
+| `max_concurrency`     | `int`              | None    | Max concurrent requests (None = unlimited)           |
+| `concurrency_timeout` | `float`            | None    | Seconds to wait for a slot (None = wait forever)     |
 
 ## Additional Resources
 

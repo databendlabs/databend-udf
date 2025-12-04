@@ -44,7 +44,11 @@ def test_concurrency_limit_exceeded(concurrency_server):
 
     # Check that errors are concurrency limit errors
     for e in errors:
-        assert "concurrency limit" in str(e).lower() or "ConcurrencyLimitExceeded" in str(type(e).__name__) or "concurrency" in str(e).lower()
+        assert (
+            "concurrency limit" in str(e).lower()
+            or "ConcurrencyLimitExceeded" in str(type(e).__name__)
+            or "concurrency" in str(e).lower()
+        )
 
 
 def test_single_concurrency(concurrency_server):
@@ -86,26 +90,26 @@ def test_unlimited_concurrency(concurrency_server):
     client = concurrency_server.get_client()
     results = []
     errors = []
-    
+
     def call_unlimited():
         try:
             result = client.call_function("slow_add_unlimited", 1)
             results.append(result)
         except Exception as e:
             errors.append(e)
-    
+
     # Start 4 concurrent requests - all should succeed
     threads = []
     for _ in range(4):
         t = threading.Thread(target=call_unlimited)
         threads.append(t)
-    
+
     for t in threads:
         t.start()
-    
+
     for t in threads:
         t.join()
-    
+
     # All should succeed since there's no limit
     assert len(results) == 4
     assert len(errors) == 0
@@ -114,7 +118,7 @@ def test_unlimited_concurrency(concurrency_server):
 def test_sequential_requests_succeed(concurrency_server):
     """Test that sequential requests all succeed even with limit."""
     client = concurrency_server.get_client()
-    
+
     # Sequential calls should all succeed
     for i in range(5):
         result = client.call_function("slow_add_limited", i)
@@ -124,11 +128,11 @@ def test_sequential_requests_succeed(concurrency_server):
 def test_concurrency_limit_releases_after_completion(concurrency_server):
     """Test that semaphore is released after request completes."""
     client = concurrency_server.get_client()
-    
+
     # First batch: fill up the limit
     result1 = client.call_function("slow_add_limited", 1)
     assert result1 == [2]
-    
+
     # After completion, should be able to make another request
     result2 = client.call_function("slow_add_limited", 2)
     assert result2 == [3]
@@ -199,4 +203,3 @@ def test_concurrency_wait_mode(concurrency_server):
     # All requests should succeed because they wait for a slot
     assert len(results) == 4, f"All 4 requests should succeed, got {len(results)}"
     assert len(errors) == 0, f"No errors expected, got {len(errors)}"
-

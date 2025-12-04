@@ -646,11 +646,12 @@ class ScalarFunction(CallableFunction):
         self, batch: pa.RecordBatch, headers: Optional[Headers] = None
     ) -> Iterator[pa.RecordBatch]:
         # Try to acquire semaphore if concurrency limiting is enabled
+        semaphore_acquired = False
         if self._semaphore is not None:
-            acquired = self._semaphore.acquire(
+            semaphore_acquired = self._semaphore.acquire(
                 blocking=True, timeout=self._concurrency_timeout
             )
-            if not acquired:
+            if not semaphore_acquired:
                 raise ConcurrencyLimitExceeded(
                     f"Function '{self._name}' has reached max concurrency limit of {self._max_concurrency}, "
                     f"timed out after {self._concurrency_timeout}s"
@@ -700,8 +701,8 @@ class ScalarFunction(CallableFunction):
             array = pa.array(column, type=self._result_schema.types[0])
             yield pa.RecordBatch.from_arrays([array], schema=self._result_schema)
         finally:
-            # Release semaphore if we acquired it
-            if self._semaphore is not None:
+            # Release semaphore only if we successfully acquired it
+            if semaphore_acquired:
                 self._semaphore.release()
 
 
@@ -752,11 +753,12 @@ class TableFunction(CallableFunction):
         self, batch: pa.RecordBatch, headers: Optional[Headers] = None
     ) -> Iterator[pa.RecordBatch]:
         # Try to acquire semaphore if concurrency limiting is enabled
+        semaphore_acquired = False
         if self._semaphore is not None:
-            acquired = self._semaphore.acquire(
+            semaphore_acquired = self._semaphore.acquire(
                 blocking=True, timeout=self._concurrency_timeout
             )
-            if not acquired:
+            if not semaphore_acquired:
                 raise ConcurrencyLimitExceeded(
                     f"Function '{self._name}' has reached max concurrency limit of {self._max_concurrency}, "
                     f"timed out after {self._concurrency_timeout}s"
@@ -779,8 +781,8 @@ class TableFunction(CallableFunction):
                     )
                     yield from self._iter_output_batches(self._func(*call_args))
         finally:
-            # Release semaphore if we acquired it
-            if self._semaphore is not None:
+            # Release semaphore only if we successfully acquired it
+            if semaphore_acquired:
                 self._semaphore.release()
 
     def _iter_output_batches(self, result: Any) -> Iterator[pa.RecordBatch]:

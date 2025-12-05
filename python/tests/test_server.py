@@ -1,6 +1,10 @@
 """
-Basic server connectivity tests.
-Tests the most fundamental server capabilities.
+Tests for UDF server basic functionality.
+
+This module tests:
+- Server startup and process management
+- Health check endpoint
+- Built-in functions (healthy, echo)
 """
 
 

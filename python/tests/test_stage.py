@@ -1,4 +1,10 @@
-"""Unit tests for StageLocation parsing and injection helpers."""
+"""
+Tests for StageLocation functionality.
+
+This module tests:
+- Unit tests: StageLocation parsing, injection, and validation
+- Integration tests: End-to-end stage-aware UDF calls
+"""
 
 import json
 
@@ -7,6 +13,11 @@ import pytest
 
 from databend_udf import StageLocation, UDFClient, udf
 from databend_udf.udf import Headers
+
+
+# =============================================================================
+# Test Helpers
+# =============================================================================
 
 
 def _make_batch(values):
@@ -19,6 +30,78 @@ def _collect(func, batch, headers):
     for output in func.eval_batch(batch, headers):
         results.extend(output.column(0).to_pylist())
     return results
+
+
+def _s3_stage(param_name: str, bucket: str, path: str, stage_name: str = None) -> dict:
+    stage_name = stage_name or param_name
+    return {
+        "param_name": param_name,
+        "relative_path": path,
+        "stage_info": {
+            "stage_name": stage_name,
+            "stage_type": "External",
+            "stage_params": {
+                "storage": {
+                    "type": "s3",
+                    "bucket": bucket,
+                    "access_key_id": f"ak-{bucket}",
+                    "secret_access_key": f"sk-{bucket}",
+                }
+            },
+        },
+    }
+
+
+def _gcs_stage(param_name: str, bucket: str, path: str, stage_name: str = None) -> dict:
+    stage_name = stage_name or param_name
+    return {
+        "param_name": param_name,
+        "relative_path": path,
+        "stage_info": {
+            "stage_name": stage_name,
+            "stage_type": "External",
+            "stage_params": {
+                "storage": {
+                    "type": "gcs",
+                    "bucket": bucket,
+                    "credential": json.dumps(
+                        {
+                            "type": "service_account",
+                            "client_email": "udf@databend.dev",
+                            "private_key": "-----BEGIN PRIVATE KEY-----",
+                        }
+                    ),
+                }
+            },
+        },
+    }
+
+
+def _azblob_stage(
+    param_name: str, container: str, path: str, stage_name: str = None
+) -> dict:
+    stage_name = stage_name or param_name
+    return {
+        "param_name": param_name,
+        "relative_path": path,
+        "stage_info": {
+            "stage_name": stage_name,
+            "stage_type": "External",
+            "stage_params": {
+                "storage": {
+                    "type": "azblob",
+                    "container": container,
+                    "account_name": "account",
+                    "account_key": "key==",
+                }
+            },
+        },
+    }
+
+
+# =============================================================================
+# Test UDFs for Unit Tests
+# =============================================================================
 
 
 @udf(stage_refs=["stage_loc"], input_types=["INT"], result_type="VARCHAR")
@@ -46,6 +129,11 @@ def multi_stage(
 ) -> int:
     assert input_stage.storage and output_stage.storage
     return value
+
+
+# =============================================================================
+# Unit Tests: StageLocation Parsing and Validation
+# =============================================================================
 
 
 def test_stage_mapping_basic_list():
@@ -208,3 +296,105 @@ def test_fs_storage_rejected():
     headers = Headers({"databend-stage-mapping": [payload]})
     with pytest.raises(ValueError, match="'fs' storage"):
         _collect(describe_stage, _make_batch([1]), headers)
+
+
+# =============================================================================
+# Integration Tests: End-to-end Stage-aware UDF Calls
+# =============================================================================
+
+
+def test_stage_integration_single_stage(stage_server):
+    """Test single stage location injection via Flight."""
+    client = stage_server.get_client()
+
+    stage_locations = [_s3_stage("data_stage", "input-bucket", "data/input/")]
+    result = client.call_function("stage_summary", 5, stage_locations=stage_locations)
+
+    assert result == ["data_stage:input-bucket:data/input/:5"]
+
+
+def test_stage_integration_multiple_stages(stage_server):
+    """Test multiple stage locations injection via Flight."""
+    client = stage_server.get_client()
+
+    stage_locations = [
+        _s3_stage("input_stage", "input-bucket", "data/input/"),
+        _s3_stage("output_stage", "output-bucket", "data/output/"),
+    ]
+
+    result = client.call_function(
+        "multi_stage_process", 10, stage_locations=stage_locations
+    )
+
+    expected = 10 + len("input-bucket") + len("output-bucket")
+    assert result == [expected]
+
+
+def test_stage_integration_gcs(stage_server):
+    """Test GCS stage location."""
+    client = stage_server.get_client()
+
+    stage_locations = [
+        _gcs_stage("data_stage", "gcs-bucket", "gcs/path/", stage_name="gcs_stage")
+    ]
+    result = client.call_function("stage_summary", 3, stage_locations=stage_locations)
+
+    assert result == ["gcs_stage:gcs-bucket:gcs/path/:3"]
+
+
+def test_stage_integration_azblob(stage_server):
+    """Test Azure Blob stage location."""
+    client = stage_server.get_client()
+
+    stage_locations = [
+        _azblob_stage("data_stage", "container", "azure/path/", stage_name="az_stage")
+    ]
+    result = client.call_function("stage_summary", 4, stage_locations=stage_locations)
+
+    assert result == ["az_stage:container:azure/path/:4"]
+
+
+def test_stage_integration_rejects_fs(stage_server):
+    """Test that fs storage type is rejected."""
+    client = stage_server.get_client()
+
+    stage_locations = [
+        {
+            "param_name": "data_stage",
+            "relative_path": "data/",
+            "stage_info": {
+                "stage_name": "data_stage",
+                "stage_type": "External",
+                "stage_params": {"storage": {"type": "fs", "root": "/tmp"}},
+            },
+        }
+    ]
+
+    with pytest.raises(pa.ArrowInvalid) as exc:
+        client.call_function("stage_summary", 1, stage_locations=stage_locations)
+
+    assert "'fs' storage" in str(exc.value)
+
+
+def test_stage_integration_rejects_internal(stage_server):
+    """Test that internal stage type is rejected."""
+    client = stage_server.get_client()
+
+    stage_locations = [
+        {
+            "param_name": "data_stage",
+            "relative_path": "data/",
+            "stage_info": {
+                "stage_name": "data_stage",
+                "stage_type": "Internal",
+                "stage_params": {
+                    "storage": {"type": "s3", "bucket": "internal-bucket"}
+                },
+            },
+        }
+    ]
+
+    with pytest.raises(pa.ArrowInvalid) as exc:
+        client.call_function("stage_summary", 1, stage_locations=stage_locations)
+
+    assert "External stage" in str(exc.value)

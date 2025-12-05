@@ -1,29 +1,33 @@
 """
-Simple UDF function tests.
-Tests basic user-defined function capability.
+Tests for UDF function calling and validation.
+
+This module tests:
+- Basic UDF function calls (single and batch)
+- Argument validation (count, types, batch lengths)
+- Table function output formats
 """
 
 
-def test_simple_addition(basic_server):
+def test_simple_addition(types_server):
     """Test simple integer addition UDF."""
-    client = basic_server.get_client()
-    result = client.call_function("add_two_ints", 2, 3)
+    client = types_server.get_client()
+    result = client.call_function("add_ints", 2, 3)
     assert result == [5]
 
 
-def test_gcd_function(basic_server):
+def test_gcd_function(types_server):
     """Test GCD function."""
-    client = basic_server.get_client()
+    client = types_server.get_client()
     result = client.call_function("gcd", 48, 18)
     assert result == [6]
 
 
-def test_batch_function_calls(basic_server):
+def test_batch_function_calls(types_server):
     """Test batch function calls with named arguments."""
-    client = basic_server.get_client()
+    client = types_server.get_client()
 
     # Test batch call with multiple values
-    result = client.call_function_batch("add_two_ints", a=[1, 2, 3], b=[4, 5, 6])
+    result = client.call_function_batch("add_ints", a=[1, 2, 3], b=[4, 5, 6])
     assert result == [5, 7, 9]
 
     # Test batch GCD
@@ -31,13 +35,13 @@ def test_batch_function_calls(basic_server):
     assert result == [6, 7]
 
 
-def test_batch_validation(basic_server):
+def test_batch_validation(types_server):
     """Test batch function validation."""
-    client = basic_server.get_client()
+    client = types_server.get_client()
 
     # Test missing required argument - should be caught by client validation
     try:
-        client.call_function_batch("add_two_ints", a=[1, 2])  # Missing 'b'
+        client.call_function_batch("add_ints", a=[1, 2])  # Missing 'b'
         assert False, "Should have raised ValueError for missing argument"
     except ValueError as e:
         assert "Missing required arguments" in str(e)
@@ -48,49 +52,49 @@ def test_batch_validation(basic_server):
     # Test extra argument - should be caught by client validation
     try:
         client.call_function_batch(
-            "add_two_ints", a=[1, 2], b=[3, 4], c=[5, 6]
+            "add_ints", a=[1, 2], b=[3, 4], c=[5, 6]
         )  # Extra 'c'
         assert False, "Should have raised ValueError for extra argument"
     except ValueError as e:
         assert "Unexpected arguments" in str(e)
 
 
-def test_positional_argument_validation(basic_server):
+def test_positional_argument_validation(types_server):
     """Test positional argument count validation."""
-    client = basic_server.get_client()
+    client = types_server.get_client()
 
     # Test too few arguments
     try:
-        client.call_function("add_two_ints", 5)  # Missing second argument
+        client.call_function("add_ints", 5)  # Missing second argument
         assert False, "Should have raised ValueError for wrong argument count"
     except ValueError as e:
         assert "expects 2 arguments, got 1" in str(e)
 
     # Test too many arguments
     try:
-        client.call_function("add_two_ints", 1, 2, 3)  # Extra argument
+        client.call_function("add_ints", 1, 2, 3)  # Extra argument
         assert False, "Should have raised ValueError for wrong argument count"
     except ValueError as e:
         assert "expects 2 arguments, got 3" in str(e)
 
 
-def test_batch_array_length_validation(basic_server):
+def test_batch_array_length_validation(types_server):
     """Test batch array length consistency validation."""
-    client = basic_server.get_client()
+    client = types_server.get_client()
 
     # Test inconsistent array lengths
     try:
         client.call_function_batch(
-            "add_two_ints", a=[1, 2, 3], b=[4, 5]
+            "add_ints", a=[1, 2, 3], b=[4, 5]
         )  # Different lengths
         assert False, "Should have raised ValueError for inconsistent array lengths"
     except ValueError as e:
         assert "All batch arrays must have the same length" in str(e)
 
 
-def test_table_function_returns_records(basic_server):
+def test_table_function_returns_records(types_server):
     """Test table-valued function returning multiple columns."""
-    client = basic_server.get_client()
+    client = types_server.get_client()
 
     batch_result = client.call_function_batch(
         "expand_pairs", lhs=[1, 2, 3], rhs=[10, 20, 30]

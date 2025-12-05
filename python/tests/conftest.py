@@ -103,85 +103,67 @@ class ServerManager:
         return UDFClient(port=self.port)
 
 
-@pytest.fixture
-def minimal_server():
-    """Minimal server with only built-in functions."""
-    script_path = os.path.join(
-        os.path.dirname(__file__), "servers", "minimal_server.py"
-    )
+def _create_fixture(script_name: str, fixture_name: str):
+    """Helper to create a server fixture."""
+    script_path = os.path.join(os.path.dirname(__file__), "servers", script_name)
     manager = ServerManager(script_path)
 
     if not manager.start():
-        pytest.fail("Failed to start minimal server")
+        pytest.fail(f"Failed to start {fixture_name}")
 
+    return manager
+
+
+@pytest.fixture
+def minimal_server():
+    """Minimal server with only built-in functions.
+
+    Use for: Basic connectivity tests, health checks.
+    """
+    manager = _create_fixture("minimal_server.py", "minimal server")
     yield manager
     manager.stop()
 
 
 @pytest.fixture
-def basic_server():
-    """Basic server with simple arithmetic functions."""
-    script_path = os.path.join(os.path.dirname(__file__), "servers", "basic_server.py")
-    manager = ServerManager(script_path)
+def types_server():
+    """Server with comprehensive type-testing functions.
 
-    if not manager.start():
-        pytest.fail("Failed to start basic server")
-
+    Use for: Testing all supported data types (scalar, complex, nullable).
+    """
+    manager = _create_fixture("types_server.py", "types server")
     yield manager
     manager.stop()
 
 
 @pytest.fixture
 def stage_server():
-    """Server exposing stage-aware UDFs."""
-    script_path = os.path.join(os.path.dirname(__file__), "servers", "stage_server.py")
-    manager = ServerManager(script_path)
+    """Server with stage-aware UDFs.
 
-    if not manager.start():
-        pytest.fail("Failed to start stage server")
-
-    yield manager
-    manager.stop()
-
-
-@pytest.fixture
-def demo_server():
-    """Self-contained demo server for example UDFs."""
-    script_path = os.path.join(os.path.dirname(__file__), "servers", "demo_server.py")
-    manager = ServerManager(script_path)
-
-    if not manager.start():
-        pytest.fail("Failed to start demo server")
-
-    yield manager
-    manager.stop()
-
-
-@pytest.fixture
-def full_server():
-    """Full server with all example functions."""
-    script_path = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)), "example", "server.py"
-    )
-    manager = ServerManager(script_path)
-
-    if not manager.start():
-        pytest.fail("Failed to start full server")
-
+    Use for: Testing StageLocation parameter handling.
+    """
+    manager = _create_fixture("stage_server.py", "stage server")
     yield manager
     manager.stop()
 
 
 @pytest.fixture
 def concurrency_server():
-    """Server with concurrency-limited functions for testing max_concurrency."""
-    script_path = os.path.join(
-        os.path.dirname(__file__), "servers", "concurrency_server.py"
-    )
-    manager = ServerManager(script_path)
+    """Server with concurrency-limited functions.
 
-    if not manager.start():
-        pytest.fail("Failed to start concurrency server")
+    Use for: Testing max_concurrency and concurrency_timeout.
+    """
+    manager = _create_fixture("concurrency_server.py", "concurrency server")
+    yield manager
+    manager.stop()
 
+
+@pytest.fixture
+def cancellation_server():
+    """Server with cancellation-aware functions.
+
+    Use for: Testing client disconnect/cancellation handling.
+    """
+    manager = _create_fixture("cancellation_server.py", "cancellation server")
     yield manager
     manager.stop()

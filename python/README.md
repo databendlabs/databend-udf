@@ -231,8 +231,10 @@ udf_server_allow_list = ["http://0.0.0.0:8815"]
 
 ## Additional Resources
 
-- [Comprehensive Examples](tests/servers/comprehensive_server.py) - All data types
-- [Test Cases](tests/test_comprehensive_example.py) - Usage examples
+- [Type Examples](tests/servers/types_server.py) - Scalar, complex, nullable, and VECTOR types
+- [Type Test Cases](tests/test_types.py) - How types are encoded/decoded and used in UDFs
+- [UDF Usage Examples](tests/test_udf.py) - Scalar and table UDF usage patterns
+- [Server Usage](tests/test_server.py) - Starting a UDF server and basic connectivity
 
 ## Development
 

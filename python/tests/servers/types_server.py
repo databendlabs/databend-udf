@@ -7,10 +7,9 @@ nullable types, and table functions to verify type handling.
 """
 
 import datetime
-import json
 import logging
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from databend_udf import UDFServer, udf
 
@@ -165,8 +164,8 @@ def gcd(x: int, y: int) -> int:
 def expand_pairs(lhs: List[int], rhs: List[int]):
     """Table function returning multiple columns."""
     return [
-        {"left": l, "right": r, "sum": l + r}
-        for l, r in zip(lhs, rhs)
+        {"left": left, "right": right, "sum": left + right}
+        for left, right in zip(lhs, rhs)
     ]
 
 

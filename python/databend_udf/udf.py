@@ -62,16 +62,32 @@ logger = logging.getLogger(__name__)
 class QueryState:
     """Represents the lifecycle state of a query request."""
 
-    def __init__(self) -> None:
+    def __init__(self, context: Any = None) -> None:
         self._cancelled = False
         self._start_time = time.time()
+        self._context = context
 
     def is_cancelled(self) -> bool:
-        return self._cancelled
+        # Check both manual cancellation and Flight context cancellation
+        if self._cancelled:
+            return True
+        if self._context is not None and hasattr(self._context, "is_cancelled"):
+            try:
+                return self._context.is_cancelled()
+            except Exception:
+                # Context may be invalid, ignore
+                pass
+        return False
 
     def cancel(self) -> None:
         self._cancelled = True
         logger.warning("Query cancelled")
+
+
+class QueryCancelledError(RuntimeError):
+    """Raised when a query is cancelled or the client disconnects."""
+
+    pass
 
 
 class HeadersMiddleware(ServerMiddleware):
@@ -308,9 +324,11 @@ def _load_stage_mapping(header_value: Any) -> Dict[str, StageLocation]:
 class Headers:
     """Wrapper providing convenient accessors for Databend request headers."""
 
-    def __init__(self, headers: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self, headers: Optional[Dict[str, Any]] = None, context: Any = None
+    ) -> None:
         self.raw_headers: Dict[str, Any] = headers or {}
-        self.query_state = QueryState()
+        self.query_state = QueryState(context)
         self._normalized: Dict[str, List[str]] = {}
         if headers:
             for key, value in headers.items():
@@ -659,6 +677,10 @@ class ScalarFunction(CallableFunction):
 
         try:
             headers_obj = self._ensure_headers(headers)
+            # Stop early if the client has already disconnected/cancelled.
+            if headers_obj.query_state.is_cancelled():
+                raise QueryCancelledError("Query cancelled")
+
             stage_locations = self._resolve_stage_locations(headers_obj)
             processed_inputs = self._convert_inputs(batch)
 
@@ -673,6 +695,8 @@ class ScalarFunction(CallableFunction):
                 futures = []
                 future_rows: List[int] = []
                 for row in range(row_count):
+                    if headers_obj.query_state.is_cancelled():
+                        raise QueryCancelledError("Query cancelled")
                     if self._skip_null and self._row_has_null(processed_inputs, row):
                         column[row] = None
                         continue
@@ -682,10 +706,14 @@ class ScalarFunction(CallableFunction):
                     futures.append(self._executor.submit(self._func, *call_args))
                     future_rows.append(row)
                 for row, future in zip(future_rows, futures):
+                    if headers_obj.query_state.is_cancelled():
+                        raise QueryCancelledError("Query cancelled")
                     column[row] = future.result()
             else:
                 column = []
                 for row in range(batch.num_rows):
+                    if headers_obj.query_state.is_cancelled():
+                        raise QueryCancelledError("Query cancelled")
                     if self._skip_null and self._row_has_null(processed_inputs, row):
                         column.append(None)
                         continue
@@ -766,6 +794,10 @@ class TableFunction(CallableFunction):
 
         try:
             headers_obj = self._ensure_headers(headers)
+            # Stop early if the client has already disconnected/cancelled.
+            if headers_obj.query_state.is_cancelled():
+                raise QueryCancelledError("Query cancelled")
+
             stage_locations = self._resolve_stage_locations(headers_obj)
             processed_inputs = self._convert_inputs(batch)
 
@@ -776,6 +808,8 @@ class TableFunction(CallableFunction):
                 yield from self._iter_output_batches(self._func(*call_args))
             else:
                 for row in range(batch.num_rows):
+                    if headers_obj.query_state.is_cancelled():
+                        raise QueryCancelledError("Query cancelled")
                     call_args = self._assemble_args(
                         processed_inputs, stage_locations, headers_obj, row
                     )
@@ -1182,8 +1216,10 @@ class UDFServer(FlightServerBase):
         writer.begin(udf._result_schema)
 
         headers_middleware = context.get_middleware("log_headers")
+        # Pass context to Headers so that query_state can check context.is_cancelled()
         request_headers = Headers(
-            headers_middleware.headers if headers_middleware else None
+            headers_middleware.headers if headers_middleware else None,
+            context=context,
         )
 
         # Increment request counter

@@ -20,6 +20,7 @@ def test_concurrency_limit_exceeded(concurrency_server):
             result = client.call_function("slow_add_limited", 1)
             results.append(result)
         except Exception as e:
+            # Capture errors for later inspection
             errors.append(e)
 
     # Start 4 concurrent requests, but max_concurrency=2
@@ -39,8 +40,8 @@ def test_concurrency_limit_exceeded(concurrency_server):
 
     # With max_concurrency=2 and 4 concurrent requests,
     # some should succeed and some should fail
-    assert len(results) >= 1, "At least one request should succeed"
-    assert len(errors) >= 1, "At least one request should be rejected"
+    assert len(results) >= 1, f"At least one request should succeed, errors={errors}"
+    assert len(errors) >= 1, f"At least one request should be rejected, errors={errors}"
 
     # Check that errors are concurrency limit errors
     for e in errors:
@@ -81,8 +82,8 @@ def test_single_concurrency(concurrency_server):
         t.join()
 
     # At least one should succeed, others should fail
-    assert len(results) >= 1
-    assert len(errors) >= 1
+    assert len(results) >= 1, f"At least one request should succeed, errors={errors}"
+    assert len(errors) >= 1, f"At least one request should be rejected, errors={errors}"
 
 
 def test_unlimited_concurrency(concurrency_server):
@@ -167,8 +168,8 @@ def test_table_function_with_concurrency_limit(concurrency_server):
         t.join()
 
     # Some should succeed, some should fail
-    assert len(results) >= 1
-    assert len(errors) >= 1
+    assert len(results) >= 1, f"At least one request should succeed, errors={errors}"
+    assert len(errors) >= 1, f"At least one request should be rejected, errors={errors}"
 
 
 def test_concurrency_wait_mode(concurrency_server):
@@ -201,5 +202,5 @@ def test_concurrency_wait_mode(concurrency_server):
         t.join()
 
     # All requests should succeed because they wait for a slot
-    assert len(results) == 4, f"All 4 requests should succeed, got {len(results)}"
-    assert len(errors) == 0, f"No errors expected, got {len(errors)}"
+    assert len(results) == 4, f"All 4 requests should succeed, got {len(results)}, errors={errors}"
+    assert len(errors) == 0, f"No errors expected, got {len(errors)}, errors={errors}"

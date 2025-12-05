@@ -202,7 +202,7 @@ def test_concurrency_wait_mode(concurrency_server):
         t.join()
 
     # All requests should succeed because they wait for a slot
-    assert (
-        len(results) == 4
-    ), f"All 4 requests should succeed, got {len(results)}, errors={errors}"
+    assert len(results) == 4, (
+        f"All 4 requests should succeed, got {len(results)}, errors={errors}"
+    )
     assert len(errors) == 0, f"No errors expected, got {len(errors)}, errors={errors}"

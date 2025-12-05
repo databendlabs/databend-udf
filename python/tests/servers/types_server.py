@@ -112,9 +112,6 @@ def double_map_values(m: Dict[str, int]) -> Dict[str, int]:
     return {k: v * 2 for k, v in m.items()}
 
 
-
-
-
 # ==============================================================================
 # Nullable Types
 # ==============================================================================
@@ -172,35 +169,44 @@ def expand_pairs(lhs: List[int], rhs: List[int]):
 def create_server(port: int) -> UDFServer:
     """Create server with all type-testing functions."""
     server = UDFServer(f"0.0.0.0:{port}")
-    
+
     # Scalar types
     for fn in [
-        negate_bool, double_tinyint, square_int, increment_bigint,
-        half_float, double_double, upper_varchar, reverse_binary,
-        scale_decimal, next_day, add_hour, wrap_variant,
+        negate_bool,
+        double_tinyint,
+        square_int,
+        increment_bigint,
+        half_float,
+        double_double,
+        upper_varchar,
+        reverse_binary,
+        scale_decimal,
+        next_day,
+        add_hour,
+        wrap_variant,
     ]:
         server.add_function(fn)
-    
+
     # Complex types
     for fn in [double_array, double_map_values]:
         server.add_function(fn)
-    
+
     # Nullable types
     for fn in [nullable_double, nullable_or_zero]:
         server.add_function(fn)
-    
+
     # Multi-input
     for fn in [add_ints, gcd]:
         server.add_function(fn)
-    
+
     # Table functions
     server.add_function(expand_pairs)
-    
+
     return server
 
 
 if __name__ == "__main__":
     import sys
+
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8815
     create_server(port).serve()
-

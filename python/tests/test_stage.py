@@ -298,7 +298,6 @@ def test_fs_storage_rejected():
         _collect(describe_stage, _make_batch([1]), headers)
 
 
-
 # =============================================================================
 # Integration Tests: End-to-end Stage-aware UDF Calls
 # =============================================================================

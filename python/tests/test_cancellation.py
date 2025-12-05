@@ -148,4 +148,3 @@ def test_client_cancellation_stops_long_running_udf(cancellation_server):
     assert total_rows < limit
     # And we should finish well before the uncancelled runtime (~5s)
     assert elapsed < 3.0
-

@@ -156,8 +156,7 @@ def _call_api(
             "model": MODEL,
             "state": state,
             "questions": {
-                "r%d" % i: _question(kind, i, query, options)
-                for i in range(len(rows))
+                "r%d" % i: _question(kind, i, query, options) for i in range(len(rows))
             },
         },
         ensure_ascii=False,
@@ -292,14 +291,10 @@ def jev(rows: List[Any], conditions: List[Optional[str]]) -> List[Optional[bool]
     result_type="DOUBLE",
     batch_mode=True,
 )
-def jev_prob(
-    rows: List[Any], conditions: List[Optional[str]]
-) -> List[Optional[float]]:
+def jev_prob(rows: List[Any], conditions: List[Optional[str]]) -> List[Optional[float]]:
     """Return the probability that each row satisfies a condition."""
     answers = _evaluate(rows, conditions, _constant_kinds(rows, "noul"))
-    return [
-        None if answer is None else float(answer["noul"]) for answer in answers
-    ]
+    return [None if answer is None else float(answer["noul"]) for answer in answers]
 
 
 @udf(
@@ -313,9 +308,7 @@ def jev_choice(
     options: List[Optional[List[str]]],
 ) -> List[Optional[str]]:
     """Classify each row into its most likely option."""
-    answers = _evaluate(
-        rows, questions, _constant_kinds(rows, "choice"), options
-    )
+    answers = _evaluate(rows, questions, _constant_kinds(rows, "choice"), options)
     return [None if answer is None else str(answer["choice"]) for answer in answers]
 
 
@@ -331,9 +324,7 @@ def jev_score(
 ) -> List[Optional[float]]:
     """Return the probability-weighted position on an ordered list of levels."""
     answers = _evaluate(rows, questions, _constant_kinds(rows, "score"), levels)
-    return [
-        None if answer is None else float(answer["score"]) for answer in answers
-    ]
+    return [None if answer is None else float(answer["score"]) for answer in answers]
 
 
 @udf(

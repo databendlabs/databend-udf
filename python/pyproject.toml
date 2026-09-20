@@ -15,7 +15,7 @@ dependencies = [
     "prometheus-client>=0.17.0"
 ]
 [project.optional-dependencies]
-lint = ["ruff"]
+lint = ["ruff==0.14.9"]
 test = ["pytest"]
 
 [project.urls]
